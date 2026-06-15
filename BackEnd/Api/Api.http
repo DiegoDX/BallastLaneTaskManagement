@@ -1,0 +1,58 @@
+@WebAPI_HostAddress = https://localhost:7194
+@token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTEiLCJ1bmlxdWVfbmFtZSI6ImFkbWluIiwianRpIjoiYjk1MDgwZGMtN2Y1OS00NTM5LWE2MmUtMTg1NmE5ZmI5NTBiIiwiZXhwIjoxNzgxNDA5NjA1LCJpc3MiOiJCYWxsYXN0TGFuZSIsImF1ZCI6IkJhbGxhc3RMYW5lIn0.W9fdAWsmNQEpLb6MmbNabhsF1VMCospyHYkxJ3KN4SE
+         
+###
+
+POST  {{WebAPI_HostAddress}}/api/v1/Auth/register/
+Content-Type: application/json
+{
+  "Username": "test",
+  "Password": "password"
+}
+
+### Login
+POST {{WebAPI_HostAddress}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "Username": "admin",
+  "Password": "Admin123!"
+}
+
+### Me
+GET {{WebAPI_HostAddress}}/api/v1/auth/me
+Authorization: Bearer {{token}}
+
+### DX
+GET {{WebAPI_HostAddress}}/api/v1/auth/DX
+Authorization: Bearer {{token}}
+
+
+### Create Task (authorized)
+POST {{WebAPI_HostAddress}}/api/v1/tasks
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "Title": "new Task " ,
+  "Description": "Description v1",
+  "UserId": "11111111-1111-1111-1111-111111111111",
+  "DueDate": "2026-12-31"
+}
+
+
+### Edit Task (authorized)
+PUT {{WebAPI_HostAddress}}/api/v1/tasks/11111111-1111-1111-1111-111111111111
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "Title": "Task 2" ,
+  "Description": "Description",
+  "UserId": "11111111-1111-1111-1111-111111111111",
+   "Status": "1"
+}
+
+### delete Task (authorized)
+DELETE {{WebAPI_HostAddress}}/api/v1/tasks/11111111-1111-1111-1111-111111111111
+Authorization: Bearer {{token}}

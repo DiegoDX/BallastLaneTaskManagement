@@ -1,0 +1,83 @@
+---
+description: .NET Technical Interview Rules
+alwaysApply: true
+---
+
+## Project requirements
+- .NET 10
+- ASP.NET Core Web API
+- SQL Server
+- Angular 20
+- Clean Architecture
+- Repository Pattern
+- JWT Authentication
+- xUnit
+
+## Forbidden:
+
+- Entity Framework
+- Dapper
+- MediatR
+
+
+## Architecture Rules
+- Enforce Clean Architecture strictly
+- Domain layer is completely independent (NO EF Core, NO external libs)
+- Application layer contains use cases and interfaces only
+- Infrastructure layer implements all external concerns (DB, APIs, File system)
+- API layer is thin: controllers only orchestrate Application layer
+
+## Dependency Rules
+- Domain -> no dependencies
+- Application -> depends only on Domain
+- Infrastructure -> depends on Application + Domain
+- API -> depends on Application
+-Tests
+
+## Design Principles
+- Follow SOLID strictly
+- Prefer composition over inheritance
+- Avoid anemic domain models when possible
+- Business logic must live in Domain layer
+- Keep controllers thin.
+- Put business logic in services.
+- Use dependency injection
+
+## Data Access
+- Microsoft.Data.SqlClient
+- ADO.NET only
+- Async methods
+- Parameterized queries
+
+## Testing Requirements
+- Domain logic MUST be unit tested
+- Application use cases MUST be tested
+- Use mocks for external dependencies
+- Tests should follow AAA pattern (Arrange, Act, Assert)
+
+## API Standards
+- RESTful design
+- Proper HTTP status codes
+- DTOs must be used for input/output
+- No domain entities exposed in API
+
+## Error Handling
+- Use custom domain exceptions
+- Do not expose internal exceptions to API
+- Centralized exception middleware required
+
+## Performance & Scalability
+- Avoid N+1 queries
+- Use async/await everywhere in I/O operations
+- Prefer pagination for all list endpoints
+
+## Code Quality
+- No "magic strings"
+- No business logic in controllers
+- Keep methods small and single responsibility
+- Explicit over implicit code
+
+## Interview Simulation Mode
+- Code must reflect production-ready standards
+- Avoid shortcuts or pseudo-code
+- Assume system will scale to real enterprise usage
