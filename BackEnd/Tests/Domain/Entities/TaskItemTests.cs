@@ -10,6 +10,7 @@ public sealed class TaskItemTests
     private static readonly Guid ValidTaskId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid ValidUserId = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private static readonly DateTime ValidDueDate = new(2026, 12, 31, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime ValidCreatedAtUtc = new(2026, 1, 15, 12, 0, 0, DateTimeKind.Utc);
 
     private static TaskItem CreateValidTask(
         string title = "Prepare sprint review",
@@ -21,6 +22,7 @@ public sealed class TaskItemTests
             ValidUserId,
             title,
             ValidDueDate,
+            ValidCreatedAtUtc,
             description,
             status);
     }
@@ -54,7 +56,8 @@ public sealed class TaskItemTests
             Guid.Empty,
             ValidUserId,
             "Valid title",
-            ValidDueDate);
+            ValidDueDate,
+            ValidCreatedAtUtc);
 
         // Act & Assert
         act.Should().Throw<DomainValidationException>()
@@ -69,7 +72,8 @@ public sealed class TaskItemTests
             ValidTaskId,
             Guid.Empty,
             "Valid title",
-            ValidDueDate);
+            ValidDueDate,
+            ValidCreatedAtUtc);
 
         // Act & Assert
         act.Should().Throw<DomainValidationException>()
@@ -84,7 +88,8 @@ public sealed class TaskItemTests
             ValidTaskId,
             ValidUserId,
             string.Empty,
-            ValidDueDate);
+            ValidDueDate,
+            ValidCreatedAtUtc);
 
         // Act & Assert
         act.Should().Throw<DomainValidationException>()
@@ -99,7 +104,8 @@ public sealed class TaskItemTests
             ValidTaskId,
             ValidUserId,
             "   ",
-            ValidDueDate);
+            ValidDueDate,
+            ValidCreatedAtUtc);
 
         // Act & Assert
         act.Should().Throw<DomainValidationException>()
@@ -114,11 +120,28 @@ public sealed class TaskItemTests
             ValidTaskId,
             ValidUserId,
             "Valid title",
-            default);
+            default,
+            ValidCreatedAtUtc);
 
         // Act & Assert
         act.Should().Throw<DomainValidationException>()
             .WithMessage("Due date cannot be empty.");
+    }
+
+    [Fact]
+    public void Creating_a_task_without_a_created_date_is_rejected()
+    {
+        // Arrange
+        var act = () => TaskItem.Create(
+            ValidTaskId,
+            ValidUserId,
+            "Valid title",
+            ValidDueDate,
+            default);
+
+        // Act & Assert
+        act.Should().Throw<DomainValidationException>()
+            .WithMessage("Created date cannot be empty.");
     }
 
     [Fact]
@@ -132,6 +155,7 @@ public sealed class TaskItemTests
             ValidUserId,
             "Valid title",
             ValidDueDate,
+            ValidCreatedAtUtc,
             status: invalidStatus);
 
         // Act & Assert
@@ -148,6 +172,7 @@ public sealed class TaskItemTests
             ValidUserId,
             "  Trim me  ",
             ValidDueDate,
+            ValidCreatedAtUtc,
             "  ");
 
         // Assert
@@ -276,7 +301,8 @@ public sealed class TaskItemTests
             "Persisted task",
             "Stored description",
             TaskItemStatus.InProgress,
-            ValidDueDate);
+            ValidDueDate,
+            ValidCreatedAtUtc);
 
         // Assert
         task.Id.Should().Be(ValidTaskId);
@@ -285,6 +311,7 @@ public sealed class TaskItemTests
         task.Description.Should().Be("Stored description");
         task.Status.Should().Be(TaskItemStatus.InProgress);
         task.DueDate.Value.Should().Be(ValidDueDate);
+        task.CreatedAtUtc.Should().Be(ValidCreatedAtUtc);
     }
 
     [Fact]
@@ -297,7 +324,8 @@ public sealed class TaskItemTests
             "Persisted task",
             null,
             (TaskItemStatus)999,
-            ValidDueDate);
+            ValidDueDate,
+            ValidCreatedAtUtc);
 
         // Act & Assert
         act.Should().Throw<DomainValidationException>()
@@ -328,7 +356,8 @@ public sealed class TaskItemTests
             ValidTaskId,
             ValidUserId,
             "Valid title",
-            DateTime.Today.AddDays(-1));
+            DateTime.Today.AddDays(-1),
+            ValidCreatedAtUtc);
 
         // Act & Assert
         act.Should().Throw<DomainValidationException>()
@@ -345,7 +374,8 @@ public sealed class TaskItemTests
             ValidTaskId,
             ValidUserId,
             tooLongTitle,
-            ValidDueDate);
+            ValidDueDate,
+            ValidCreatedAtUtc);
 
         // Act & Assert
         act.Should().Throw<DomainValidationException>()
@@ -388,6 +418,7 @@ public sealed class TaskItemTests
             ValidUserId,
             "Valid title",
             ValidDueDate,
+            ValidCreatedAtUtc,
             "  Trimmed description  ");
 
         // Assert

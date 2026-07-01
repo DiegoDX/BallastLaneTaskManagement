@@ -1,3 +1,4 @@
+using Api.Cookies;
 using Application.DTOs.Auth;
 using Application.Interfaces.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -10,10 +11,12 @@ namespace Api.Controllers;
 public sealed class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IWebHostEnvironment _environment;
 
-    public AuthController(IAuthService authService)
+    public AuthController(IAuthService authService, IWebHostEnvironment environment)
     {
         _authService = authService ?? throw new ArgumentNullException(nameof(authService));
+        _environment = environment ?? throw new ArgumentNullException(nameof(environment));
     }
 
     [HttpPost("register")]
@@ -37,36 +40,56 @@ public sealed class AuthController : ControllerBase
         [FromBody] LoginRequest request,
         CancellationToken cancellationToken)
     {
-        var response = await _authService
+        var session = await _authService
             .LoginUserAsync(request, cancellationToken);
 
-        return Ok(response);
+        RefreshTokenCookie.Set(
+            Response,
+            session.RefreshTokenPlain,
+            session.RefreshTokenExpiresAtUtc,
+            UseSecureCookies());
+
+        return Ok(session.Response);
     }
 
-    // ----------------------------
-    // TEST AUTHENTICATED
-    // ----------------------------
-    [HttpGet("me")]
-    //[Authorize]
+    [HttpPost("refresh")]
     [AllowAnonymous]
-    public IActionResult Me()
+    [ProducesResponseType(typeof(RefreshResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Refresh(CancellationToken cancellationToken)
     {
-        var headers = Request.Headers
-        .Select(h => new { h.Key, h.Value })
-        .ToList();
-        return Ok(headers);
-        //return Ok(new
-        //{
-        //    AuthHeader = Request.Headers.Authorization.ToString()
-        //    //UserId = User.FindFirst("sub")?.Value,
-        //    //UniqueName = User.FindFirst("unique_name")?.Value,
-        //});
+        if (!RefreshTokenCookie.TryGet(Request, out var refreshToken))
+        {
+            return Unauthorized();
+        }
+
+        var session = await _authService
+            .RefreshAccessTokenAsync(refreshToken, cancellationToken);
+
+        RefreshTokenCookie.Set(
+            Response,
+            session.RefreshTokenPlain,
+            session.RefreshTokenExpiresAtUtc,
+            UseSecureCookies());
+
+        return Ok(session.Response);
     }
 
-    [HttpGet("DX")]
-    [Authorize]
-    public IActionResult DX()
+    [HttpPost("logout")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Logout(CancellationToken cancellationToken)
     {
-        return Ok("Authenticated");
+        if (RefreshTokenCookie.TryGet(Request, out var refreshToken))
+        {
+            await _authService.LogoutAsync(refreshToken, cancellationToken);
+        }
+
+        RefreshTokenCookie.Delete(Response, UseSecureCookies());
+
+        return NoContent();
     }
+
+    private bool UseSecureCookies() =>
+        !_environment.IsEnvironment("Testing");
 }

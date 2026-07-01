@@ -1,0 +1,41 @@
+using Application.DTOs.Llm;
+using Application.DTOs.Tasks;
+using Domain.ValueObjects;
+
+namespace Application.Llm;
+
+public static class TaskSuggestionPromptBuilder
+{
+    private const double DefaultTemperature = 0.3;
+
+    public static LlmChatRequest BuildChatRequest(TaskSuggestionRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var messages = new List<LlmMessage>
+        {
+            new(LlmMessageRole.System, BuildSystemMessage()),
+            new(LlmMessageRole.User, request.Prompt.Trim())
+        };
+
+        return new LlmChatRequest(messages, Temperature: DefaultTemperature);
+    }
+
+    private static string BuildSystemMessage()
+    {
+        return
+            """
+            You are a task planning assistant. Given a user's natural-language description, suggest a concise task title and optional description.
+
+            Respond with JSON only, no markdown fences or extra text, using this exact shape:
+            {"title":"...","description":"..."}
+
+            Rules:
+            """ +
+            $"- title must be non-empty and at most {TaskTitle.MaxLength} characters\n" +
+            """
+            - description may be an empty string when no extra detail is needed
+            - keep the title actionable and concise
+            """;
+    }
+}

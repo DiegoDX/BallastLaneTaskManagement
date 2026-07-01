@@ -73,6 +73,12 @@ public sealed class ExceptionHandlingMiddleware
             UnauthorizedAccessException unauthorizedAccessException =>
                 ((int)HttpStatusCode.Unauthorized, unauthorizedAccessException.Message),
 
+            LlmException { IsTransient: true } =>
+                ((int)HttpStatusCode.ServiceUnavailable, "The LLM service is temporarily unavailable."),
+
+            LlmException llmException =>
+                ((int)HttpStatusCode.BadGateway, llmException.Message),
+
             _ => ((int)HttpStatusCode.InternalServerError, "An unexpected error occurred.")
         };
     }

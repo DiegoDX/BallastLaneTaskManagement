@@ -84,6 +84,8 @@ internal sealed class AuthenticatedApiClient
 
 internal static class ApiAuthHelper
 {
+    public const string RefreshTokenCookieName = "refresh_token";
+
     public static async Task<(HttpResponseMessage Response, RegisterResponse? Body)> RegisterAsync(
         HttpClient client,
         RegisterRequest request)
@@ -98,6 +100,51 @@ internal static class ApiAuthHelper
     {
         var response = await client.PostAsJsonAsync(ApiRoutes.Login, request);
         return await response.ReadJsonAsync<LoginResponse>();
+    }
+
+    public static string? ExtractRefreshTokenFromResponse(HttpResponseMessage response)
+    {
+        if (!response.Headers.TryGetValues("Set-Cookie", out var setCookieHeaders))
+        {
+            return null;
+        }
+
+        foreach (var header in setCookieHeaders)
+        {
+            var segments = header.Split(';', StringSplitOptions.TrimEntries);
+            var nameValue = segments[0];
+
+            if (!nameValue.StartsWith($"{RefreshTokenCookieName}=", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            return nameValue[(RefreshTokenCookieName.Length + 1)..];
+        }
+
+        return null;
+    }
+
+    public static HttpRequestMessage CreateRefreshTokenRequest(HttpMethod method, string url, string refreshToken)
+    {
+        var request = new HttpRequestMessage(method, url);
+        request.Headers.Add("Cookie", $"{RefreshTokenCookieName}={refreshToken}");
+        return request;
+    }
+
+    public static async Task<(HttpResponseMessage Response, RefreshResponse? Body)> RefreshAsync(
+        HttpClient client,
+        string refreshToken)
+    {
+        var request = CreateRefreshTokenRequest(HttpMethod.Post, ApiRoutes.Refresh, refreshToken);
+        var response = await client.SendAsync(request);
+        return await response.ReadJsonAsync<RefreshResponse>();
+    }
+
+    public static async Task<HttpResponseMessage> LogoutAsync(HttpClient client, string refreshToken)
+    {
+        var request = CreateRefreshTokenRequest(HttpMethod.Post, ApiRoutes.Logout, refreshToken);
+        return await client.SendAsync(request);
     }
 
     public static async Task<AuthenticatedApiClient> RegisterAndLoginAsync(

@@ -12,6 +12,15 @@ public sealed class ApiIntegrationFixture : WebApplicationFactory<Program>, IAsy
 
     public HttpClient HttpClient { get; private set; } = null!;
 
+    public HttpClient CreateIsolatedClient()
+    {
+        return CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+            HandleCookies = false
+        });
+    }
+
     public async Task InitializeAsync()
     {
         var configuration = BuildApiConfiguration();
@@ -87,6 +96,7 @@ public sealed class ApiIntegrationFixture : WebApplicationFactory<Program>, IAsy
 
         const string sql = """
             DELETE FROM Tasks WHERE UserId = @UserId;
+            DELETE FROM RefreshTokens WHERE UserId = @UserId;
             DELETE FROM Users WHERE Id = @UserId;
             """;
 

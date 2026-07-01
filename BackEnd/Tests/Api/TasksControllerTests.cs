@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Application.DTOs.Common;
 using Application.DTOs.Tasks;
 using FluentAssertions;
 
@@ -28,13 +29,119 @@ public sealed class TasksControllerTests
 
         // Act
         var response = await authenticatedClient.SendAuthorizedAsync(HttpMethod.Get, ApiRoutes.Tasks);
-        var (_, tasks) = await response.ReadJsonAsync<List<TaskResponse>>();
+        var (_, pagedTasks) = await response.ReadJsonAsync<PagedResult<TaskListItemResponse>>();
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        tasks.Should().NotBeNull();
-        tasks!.Should().HaveCount(2);
-        tasks.Select(task => task.Title).Should().Contain(["First task", "Second task"]);
+        pagedTasks.Should().NotBeNull();
+        pagedTasks!.Items.Should().HaveCount(2);
+        pagedTasks.PageNumber.Should().Be(1);
+        pagedTasks.PageSize.Should().Be(10);
+        pagedTasks.TotalRecords.Should().Be(2);
+        pagedTasks.TotalPages.Should().Be(1);
+        pagedTasks.Items.Select(task => task.Title).Should().Contain(["First task", "Second task"]);
+    }
+
+    [Fact]
+    public async Task Get_tasks_returns_paged_metadata_for_query_parameters()
+    {
+        // Arrange
+        var authenticatedClient = await CreateRegisteredUserAsync();
+        var dueDate = DateTime.UtcNow.AddDays(3);
+
+        for (var index = 0; index < 12; index++)
+        {
+            await CreateTaskAsync(authenticatedClient, $"Paged task {index + 1:D2}", dueDate.AddDays(index));
+        }
+
+        // Act
+        var response = await authenticatedClient.SendAuthorizedAsync(
+            HttpMethod.Get,
+            $"{ApiRoutes.Tasks}?pageNumber=2&pageSize=5");
+
+        var (_, pagedTasks) = await response.ReadJsonAsync<PagedResult<TaskListItemResponse>>();
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        pagedTasks.Should().NotBeNull();
+        pagedTasks!.PageNumber.Should().Be(2);
+        pagedTasks.PageSize.Should().Be(5);
+        pagedTasks.TotalRecords.Should().Be(12);
+        pagedTasks.TotalPages.Should().Be(3);
+        pagedTasks.Items.Should().HaveCount(5);
+    }
+
+    [Fact]
+    public async Task Get_tasks_filters_by_status()
+    {
+        // Arrange
+        var authenticatedClient = await CreateRegisteredUserAsync();
+        var dueDate = DateTime.UtcNow.AddDays(3);
+
+        var pendingTask = await CreateTaskAsync(authenticatedClient, "Pending task", dueDate);
+        var completedTask = await CreateTaskAsync(authenticatedClient, "Completed task", dueDate.AddDays(1));
+
+        await UpdateTaskStatusAsync(authenticatedClient, completedTask.Id, "Completed");
+
+        // Act
+        var response = await authenticatedClient.SendAuthorizedAsync(
+            HttpMethod.Get,
+            $"{ApiRoutes.Tasks}?status=Completed");
+
+        var (_, pagedTasks) = await response.ReadJsonAsync<PagedResult<TaskListItemResponse>>();
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        pagedTasks!.TotalRecords.Should().Be(1);
+        pagedTasks.Items.Should().ContainSingle(task => task.Id == completedTask.Id);
+        pagedTasks.Items.Should().NotContain(task => task.Id == pendingTask.Id);
+    }
+
+    [Fact]
+    public async Task Get_tasks_filters_by_title_contains()
+    {
+        // Arrange
+        var authenticatedClient = await CreateRegisteredUserAsync();
+        var dueDate = DateTime.UtcNow.AddDays(3);
+
+        await CreateTaskAsync(authenticatedClient, "Annual report", dueDate);
+        await CreateTaskAsync(authenticatedClient, "Team meeting", dueDate.AddDays(1));
+
+        // Act
+        var response = await authenticatedClient.SendAuthorizedAsync(
+            HttpMethod.Get,
+            $"{ApiRoutes.Tasks}?title=report");
+
+        var (_, pagedTasks) = await response.ReadJsonAsync<PagedResult<TaskListItemResponse>>();
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        pagedTasks!.TotalRecords.Should().Be(1);
+        pagedTasks.Items.Should().ContainSingle(task => task.Title == "Annual report");
+    }
+
+    [Theory]
+    [InlineData("pageNumber=0&pageSize=10", "PageNumber must be greater than 0.")]
+    [InlineData("pageNumber=1&pageSize=0", "PageSize must be between 1 and 100.")]
+    [InlineData("pageNumber=1&pageSize=101", "PageSize must be between 1 and 100.")]
+    [InlineData("status=NotAStatus", "Status must be one of: Pending, InProgress, or Completed.")]
+    public async Task Get_tasks_returns_bad_request_for_invalid_query_parameters(
+        string query,
+        string expectedMessage)
+    {
+        // Arrange
+        var authenticatedClient = await CreateRegisteredUserAsync();
+
+        // Act
+        var response = await authenticatedClient.SendAuthorizedAsync(
+            HttpMethod.Get,
+            $"{ApiRoutes.Tasks}?{query}");
+
+        var (_, error) = await response.ReadErrorAsync();
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        error!.Message.Should().Be(expectedMessage);
     }
 
     [Fact]
@@ -324,5 +431,31 @@ public sealed class TasksControllerTests
         task.Should().NotBeNull();
 
         return task!;
+    }
+
+    private static async Task UpdateTaskStatusAsync(
+        AuthenticatedApiClient authenticatedClient,
+        Guid taskId,
+        string status)
+    {
+        var getResponse = await authenticatedClient.SendAuthorizedAsync(
+            HttpMethod.Get,
+            ApiRoutes.TaskById(taskId));
+
+        var (_, existingTask) = await getResponse.ReadJsonAsync<TaskResponse>();
+        existingTask.Should().NotBeNull();
+
+        var updateRequest = new UpdateTaskRequest(
+            taskId,
+            existingTask!.Title,
+            existingTask.Description,
+            status);
+
+        var updateResponse = await authenticatedClient.SendAuthorizedAsync(
+            HttpMethod.Put,
+            ApiRoutes.TaskById(taskId),
+            JsonContent.Create(updateRequest));
+
+        updateResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
 }

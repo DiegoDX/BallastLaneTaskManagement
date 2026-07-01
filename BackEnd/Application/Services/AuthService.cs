@@ -15,15 +15,19 @@ public sealed class AuthService : IAuthService
     private readonly IUserRepository _userRepository;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IAuthTokenService _authTokenService;
+    private readonly IRefreshTokenService _refreshTokenService;
 
     public AuthService(
         IUserRepository userRepository,
         IPasswordHasher passwordHasher,
-        IAuthTokenService authTokenService)
+        IAuthTokenService authTokenService,
+        IRefreshTokenService refreshTokenService)
     {
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _passwordHasher = passwordHasher ?? throw new ArgumentNullException(nameof(passwordHasher));
         _authTokenService = authTokenService ?? throw new ArgumentNullException(nameof(authTokenService));
+        _refreshTokenService = refreshTokenService
+            ?? throw new ArgumentNullException(nameof(refreshTokenService));
     }
 
     public async Task<RegisterResponse> RegisterUserAsync(
@@ -58,7 +62,7 @@ public sealed class AuthService : IAuthService
         return new RegisterResponse(user.Id);
     }
 
-    public async Task<LoginResponse> LoginUserAsync(
+    public async Task<LoginSessionResult> LoginUserAsync(
         LoginRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -72,9 +76,33 @@ public sealed class AuthService : IAuthService
             throw new UnauthorizedException("Invalid username or password.");
         }
 
-        var token = _authTokenService.GenerateToken(user.Id, user.Name.Value);
+        var accessToken = _authTokenService.GenerateToken(user.Id, user.Name.Value);
+        var refreshToken = await _refreshTokenService.IssueAsync(user.Id, cancellationToken);
 
-        return new LoginResponse(user.Id, user.Name.Value, token);
+        var response = new LoginResponse(user.Id, user.Name.Value, accessToken);
+
+        return new LoginSessionResult(
+            response,
+            refreshToken.PlainToken,
+            refreshToken.ExpiresAtUtc);
+    }
+
+    public async Task<RefreshSessionResult> RefreshAccessTokenAsync(
+        string refreshTokenPlain,
+        CancellationToken cancellationToken = default)
+    {
+        var rotation = await _refreshTokenService.RotateAsync(refreshTokenPlain, cancellationToken);
+        var accessToken = _authTokenService.GenerateToken(rotation.UserId, rotation.Username);
+
+        return new RefreshSessionResult(
+            new RefreshResponse(accessToken),
+            rotation.PlainToken,
+            rotation.ExpiresAtUtc);
+    }
+
+    public Task LogoutAsync(string refreshTokenPlain, CancellationToken cancellationToken = default)
+    {
+        return _refreshTokenService.RevokeAsync(refreshTokenPlain, cancellationToken);
     }
 
     private static void ValidateRegisterRequest(RegisterRequest request)

@@ -8,6 +8,10 @@ public interface ITaskRepository
 
     Task<IReadOnlyList<TaskItem>> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
 
+    Task<(IReadOnlyList<TaskItem> Items, int TotalRecords)> SearchAsync(
+        TaskSearchCriteria criteria,
+        CancellationToken cancellationToken = default);
+
     Task AddAsync(TaskItem task, CancellationToken cancellationToken = default);
 
     Task UpdateAsync(TaskItem task, CancellationToken cancellationToken = default);

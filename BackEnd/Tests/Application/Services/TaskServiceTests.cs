@@ -1,6 +1,8 @@
+using Application.DTOs.Common;
 using Application.DTOs.Tasks;
 using Application.Exceptions;
 using Application.Interfaces.Repositories;
+using Application.Interfaces.Services;
 using Application.Services;
 using Domain.Entities;
 using Domain.Enums;
@@ -13,14 +15,41 @@ public sealed class TaskServiceTests
 {
     private readonly Mock<ITaskRepository> _taskRepositoryMock = new();
     private readonly Mock<IUserRepository> _userRepositoryMock = new();
+    private readonly Mock<TimeProvider> _timeProviderMock = new();
     private readonly TaskService _sut;
 
     private readonly Guid _userId = Guid.NewGuid();
     private readonly DateTime _dueDate = DateTime.UtcNow.AddDays(2);
+    private readonly DateTime _createdAtUtc = new(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc);
 
     public TaskServiceTests()
     {
-        _sut = new TaskService(_taskRepositoryMock.Object, _userRepositoryMock.Object);
+        _timeProviderMock
+            .Setup(provider => provider.GetUtcNow())
+            .Returns(new DateTimeOffset(_createdAtUtc));
+
+        _sut = new TaskService(
+            _taskRepositoryMock.Object,
+            _userRepositoryMock.Object,
+            _timeProviderMock.Object);
+    }
+
+    private TaskItem CreateTaskItem(
+        Guid taskId,
+        Guid userId,
+        string title,
+        TaskItemStatus status = TaskItemStatus.Pending,
+        string? description = null,
+        DateTime? createdAtUtc = null)
+    {
+        return TaskItem.Create(
+            taskId,
+            userId,
+            title,
+            _dueDate,
+            createdAtUtc ?? _createdAtUtc,
+            description,
+            status);
     }
 
     [Fact]
@@ -209,7 +238,7 @@ public sealed class TaskServiceTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var task = TaskItem.Create(taskId, _userId, "My task", _dueDate, "Description");
+        var task = CreateTaskItem(taskId, _userId, "My task", description: "Description");
 
         _taskRepositoryMock
             .Setup(repository => repository.GetByIdAsync(taskId, It.IsAny<CancellationToken>()))
@@ -250,7 +279,7 @@ public sealed class TaskServiceTests
         // Arrange
         var taskId = Guid.NewGuid();
         var otherUserId = Guid.NewGuid();
-        var task = TaskItem.Create(taskId, otherUserId, "Other user task", _dueDate);
+        var task = CreateTaskItem(taskId, otherUserId, "Other user task");
 
         _taskRepositoryMock
             .Setup(repository => repository.GetByIdAsync(taskId, It.IsAny<CancellationToken>()))
@@ -290,14 +319,14 @@ public sealed class TaskServiceTests
     }
 
     [Fact]
-    public async Task GetTasksByUserAsync_ShouldReturnTasksForValidUser()
+    public async Task SearchTasksAsync_ShouldReturnPagedTasksForValidUser()
     {
         // Arrange
         var user = User.Restore(_userId, "testuser", "hash");
         var tasks = new List<TaskItem>
         {
-            TaskItem.Create(Guid.NewGuid(), _userId, "Task 1", _dueDate),
-            TaskItem.Create(Guid.NewGuid(), _userId, "Task 2", _dueDate, status: TaskItemStatus.InProgress)
+            CreateTaskItem(Guid.NewGuid(), _userId, "Task 1"),
+            CreateTaskItem(Guid.NewGuid(), _userId, "Task 2", TaskItemStatus.InProgress)
         };
 
         _userRepositoryMock
@@ -305,19 +334,25 @@ public sealed class TaskServiceTests
             .ReturnsAsync(user);
 
         _taskRepositoryMock
-            .Setup(repository => repository.GetByUserIdAsync(_userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(tasks);
+            .Setup(repository => repository.SearchAsync(It.IsAny<TaskSearchCriteria>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((tasks, 2));
+
+        var request = new TaskSearchRequest { PageNumber = 1, PageSize = 10 };
 
         // Act
-        var response = await _sut.GetTasksByUserAsync(_userId);
+        var response = await _sut.SearchTasksAsync(_userId, request);
 
         // Assert
-        response.Should().HaveCount(2);
-        response.Select(task => task.Title).Should().Contain(["Task 1", "Task 2"]);
+        response.Items.Should().HaveCount(2);
+        response.PageNumber.Should().Be(1);
+        response.PageSize.Should().Be(10);
+        response.TotalRecords.Should().Be(2);
+        response.TotalPages.Should().Be(1);
+        response.Items.Select(task => task.Title).Should().Contain(["Task 1", "Task 2"]);
     }
 
     [Fact]
-    public async Task GetTasksByUserAsync_ShouldReturnEmptyList_WhenUserHasNoTasks()
+    public async Task SearchTasksAsync_ShouldReturnEmptyPageWhenUserHasNoTasks()
     {
         // Arrange
         var user = User.Restore(_userId, "testuser", "hash");
@@ -327,18 +362,20 @@ public sealed class TaskServiceTests
             .ReturnsAsync(user);
 
         _taskRepositoryMock
-            .Setup(repository => repository.GetByUserIdAsync(_userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<TaskItem>());
+            .Setup(repository => repository.SearchAsync(It.IsAny<TaskSearchCriteria>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Array.Empty<TaskItem>(), 0));
 
         // Act
-        var response = await _sut.GetTasksByUserAsync(_userId);
+        var response = await _sut.SearchTasksAsync(_userId, new TaskSearchRequest());
 
         // Assert
-        response.Should().BeEmpty();
+        response.Items.Should().BeEmpty();
+        response.TotalRecords.Should().Be(0);
+        response.TotalPages.Should().Be(0);
     }
 
     [Fact]
-    public async Task GetTasksByUserAsync_ShouldThrowNotFoundException_WhenUserDoesNotExist()
+    public async Task SearchTasksAsync_ShouldThrowNotFoundException_WhenUserDoesNotExist()
     {
         // Arrange
         _userRepositoryMock
@@ -346,7 +383,7 @@ public sealed class TaskServiceTests
             .ReturnsAsync((User?)null);
 
         // Act
-        var act = () => _sut.GetTasksByUserAsync(_userId);
+        var act = () => _sut.SearchTasksAsync(_userId, new TaskSearchRequest());
 
         // Assert
         await act.Should().ThrowAsync<NotFoundException>()
@@ -354,14 +391,204 @@ public sealed class TaskServiceTests
     }
 
     [Fact]
-    public async Task GetTasksByUserAsync_ShouldThrowValidationException_WhenUserIdIsEmpty()
+    public async Task SearchTasksAsync_ShouldThrowValidationException_WhenUserIdIsEmpty()
     {
         // Act
-        var act = () => _sut.GetTasksByUserAsync(Guid.Empty);
+        var act = () => _sut.SearchTasksAsync(Guid.Empty, new TaskSearchRequest());
 
         // Assert
         await act.Should().ThrowAsync<ValidationException>()
             .WithMessage("User id is required.");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task SearchTasksAsync_ShouldThrowValidationException_WhenPageNumberIsInvalid(int pageNumber)
+    {
+        // Act
+        var act = () => _sut.SearchTasksAsync(
+            _userId,
+            new TaskSearchRequest { PageNumber = pageNumber, PageSize = 10 });
+
+        // Assert
+        await act.Should().ThrowAsync<ValidationException>()
+            .WithMessage("PageNumber must be greater than 0.");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(101)]
+    public async Task SearchTasksAsync_ShouldThrowValidationException_WhenPageSizeIsInvalid(int pageSize)
+    {
+        // Act
+        var act = () => _sut.SearchTasksAsync(
+            _userId,
+            new TaskSearchRequest { PageNumber = 1, PageSize = pageSize });
+
+        // Assert
+        await act.Should().ThrowAsync<ValidationException>()
+            .WithMessage("PageSize must be between 1 and 100.");
+    }
+
+    [Fact]
+    public async Task SearchTasksAsync_ShouldThrowValidationException_WhenStatusIsInvalid()
+    {
+        // Act
+        var act = () => _sut.SearchTasksAsync(
+            _userId,
+            new TaskSearchRequest { Status = "NotAStatus" });
+
+        // Assert
+        await act.Should().ThrowAsync<ValidationException>()
+            .WithMessage("Status must be one of: Pending, InProgress, or Completed.");
+    }
+
+    [Fact]
+    public async Task SearchTasksAsync_ShouldPassStatusFilterToRepository()
+    {
+        // Arrange
+        var user = User.Restore(_userId, "testuser", "hash");
+        TaskSearchCriteria? capturedCriteria = null;
+
+        _userRepositoryMock
+            .Setup(repository => repository.GetByIdAsync(_userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _taskRepositoryMock
+            .Setup(repository => repository.SearchAsync(It.IsAny<TaskSearchCriteria>(), It.IsAny<CancellationToken>()))
+            .Callback<TaskSearchCriteria, CancellationToken>((criteria, _) => capturedCriteria = criteria)
+            .ReturnsAsync((Array.Empty<TaskItem>(), 0));
+
+        // Act
+        await _sut.SearchTasksAsync(
+            _userId,
+            new TaskSearchRequest { Status = TaskItemStatus.Completed.ToString() });
+
+        // Assert
+        capturedCriteria.Should().NotBeNull();
+        capturedCriteria!.Status.Should().Be(TaskItemStatus.Completed);
+    }
+
+    [Fact]
+    public async Task SearchTasksAsync_ShouldPassTitleFilterToRepository()
+    {
+        // Arrange
+        var user = User.Restore(_userId, "testuser", "hash");
+        TaskSearchCriteria? capturedCriteria = null;
+
+        _userRepositoryMock
+            .Setup(repository => repository.GetByIdAsync(_userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _taskRepositoryMock
+            .Setup(repository => repository.SearchAsync(It.IsAny<TaskSearchCriteria>(), It.IsAny<CancellationToken>()))
+            .Callback<TaskSearchCriteria, CancellationToken>((criteria, _) => capturedCriteria = criteria)
+            .ReturnsAsync((Array.Empty<TaskItem>(), 0));
+
+        // Act
+        await _sut.SearchTasksAsync(
+            _userId,
+            new TaskSearchRequest { Title = "  report  " });
+
+        // Assert
+        capturedCriteria.Should().NotBeNull();
+        capturedCriteria!.TitleContains.Should().Be("report");
+    }
+
+    [Fact]
+    public async Task SearchTasksAsync_ShouldUseCreatedDateDescendingByDefault()
+    {
+        // Arrange
+        var user = User.Restore(_userId, "testuser", "hash");
+        TaskSearchCriteria? capturedCriteria = null;
+
+        _userRepositoryMock
+            .Setup(repository => repository.GetByIdAsync(_userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _taskRepositoryMock
+            .Setup(repository => repository.SearchAsync(It.IsAny<TaskSearchCriteria>(), It.IsAny<CancellationToken>()))
+            .Callback<TaskSearchCriteria, CancellationToken>((criteria, _) => capturedCriteria = criteria)
+            .ReturnsAsync((Array.Empty<TaskItem>(), 0));
+
+        // Act
+        await _sut.SearchTasksAsync(_userId, new TaskSearchRequest());
+
+        // Assert
+        capturedCriteria.Should().NotBeNull();
+        capturedCriteria!.SortBy.Should().Be(TaskSortField.CreatedDate);
+        capturedCriteria.SortDirection.Should().Be(SortDirection.Desc);
+    }
+
+    [Fact]
+    public async Task SearchTasksAsync_ShouldPassSortCriteriaToRepository()
+    {
+        // Arrange
+        var user = User.Restore(_userId, "testuser", "hash");
+        TaskSearchCriteria? capturedCriteria = null;
+
+        _userRepositoryMock
+            .Setup(repository => repository.GetByIdAsync(_userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _taskRepositoryMock
+            .Setup(repository => repository.SearchAsync(It.IsAny<TaskSearchCriteria>(), It.IsAny<CancellationToken>()))
+            .Callback<TaskSearchCriteria, CancellationToken>((criteria, _) => capturedCriteria = criteria)
+            .ReturnsAsync((Array.Empty<TaskItem>(), 0));
+
+        // Act
+        await _sut.SearchTasksAsync(
+            _userId,
+            new TaskSearchRequest
+            {
+                SortBy = TaskSortField.Title.ToString(),
+                SortDirection = SortDirection.Desc.ToString()
+            });
+
+        // Assert
+        capturedCriteria.Should().NotBeNull();
+        capturedCriteria!.SortBy.Should().Be(TaskSortField.Title);
+        capturedCriteria.SortDirection.Should().Be(SortDirection.Desc);
+    }
+
+    [Fact]
+    public async Task SearchTasksAsync_ShouldThrowValidationException_WhenFilteringForAnotherUser()
+    {
+        // Act
+        var act = () => _sut.SearchTasksAsync(
+            _userId,
+            new TaskSearchRequest { CreatedByUserId = Guid.NewGuid() });
+
+        // Assert
+        await act.Should().ThrowAsync<ValidationException>()
+            .WithMessage("Cannot filter tasks for another user.");
+    }
+
+    [Fact]
+    public async Task SearchTasksAsync_ShouldThrowValidationException_WhenSortByIsInvalid()
+    {
+        // Act
+        var act = () => _sut.SearchTasksAsync(
+            _userId,
+            new TaskSearchRequest { SortBy = "DueDate" });
+
+        // Assert
+        await act.Should().ThrowAsync<ValidationException>()
+            .WithMessage("SortBy must be one of: CreatedDate, Title, or Status.");
+    }
+
+    [Fact]
+    public async Task SearchTasksAsync_ShouldThrowValidationException_WhenSortDirectionIsInvalid()
+    {
+        // Act
+        var act = () => _sut.SearchTasksAsync(
+            _userId,
+            new TaskSearchRequest { SortDirection = "Up" });
+
+        // Assert
+        await act.Should().ThrowAsync<ValidationException>()
+            .WithMessage("SortDirection must be Asc or Desc.");
     }
 
     [Fact]
@@ -369,7 +596,7 @@ public sealed class TaskServiceTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var existingTask = TaskItem.Create(taskId, _userId, "Original title", _dueDate);
+        var existingTask = CreateTaskItem(taskId, _userId, "Original title");
 
         var request = new UpdateTaskRequest(taskId, "Updated title", "Updated description", TaskItemStatus.InProgress.ToString());
         
@@ -417,12 +644,11 @@ public sealed class TaskServiceTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var completedTask = TaskItem.Create(
+        var completedTask = CreateTaskItem(
             taskId,
             _userId,
             "Completed task",
-            _dueDate,
-            status: TaskItemStatus.Completed);
+            TaskItemStatus.Completed);
 
         var request = new UpdateTaskRequest(taskId, "Updated title", "Updated description", TaskItemStatus.Pending.ToString());
 
@@ -448,7 +674,7 @@ public sealed class TaskServiceTests
         // Arrange
         var taskId = Guid.NewGuid();
         var otherUserId = Guid.NewGuid();
-        var task = TaskItem.Create(taskId, otherUserId, "Other user task", _dueDate);
+        var task = CreateTaskItem(taskId, otherUserId, "Other user task");
 
         var request = new UpdateTaskRequest(taskId, "Updated title", "Updated description", TaskItemStatus.InProgress.ToString());
 
@@ -548,7 +774,7 @@ public sealed class TaskServiceTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var existingTask = TaskItem.Create(taskId, _userId, "Original title", _dueDate);
+        var existingTask = CreateTaskItem(taskId, _userId, "Original title");
 
         var request = new UpdateTaskRequest(taskId, "Updated title", "Updated description", "NotAStatus");
 
@@ -573,7 +799,7 @@ public sealed class TaskServiceTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var existingTask = TaskItem.Create(taskId, _userId, "Original title", _dueDate);
+        var existingTask = CreateTaskItem(taskId, _userId, "Original title");
 
         var request = new UpdateTaskRequest(taskId, "Updated title", "Updated description", TaskItemStatus.Pending.ToString());
 
@@ -602,12 +828,11 @@ public sealed class TaskServiceTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var existingTask = TaskItem.Create(
+        var existingTask = CreateTaskItem(
             taskId,
             _userId,
             "In progress task",
-            _dueDate,
-            status: TaskItemStatus.InProgress);
+            TaskItemStatus.InProgress);
 
         var request = new UpdateTaskRequest(taskId, "In progress task", "In progress task description", TaskItemStatus.Pending.ToString());
 
@@ -631,7 +856,7 @@ public sealed class TaskServiceTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var existingTask = TaskItem.Create(taskId, _userId, "Original title", _dueDate);
+        var existingTask = CreateTaskItem(taskId, _userId, "Original title");
         var tooLongTitle = new string('a', 257);
 
         var request = new UpdateTaskRequest(taskId, tooLongTitle, "Description", TaskItemStatus.InProgress.ToString());
@@ -657,7 +882,7 @@ public sealed class TaskServiceTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var task = TaskItem.Create(taskId, _userId, "Task to delete", _dueDate);
+        var task = CreateTaskItem(taskId, _userId, "Task to delete");
 
         _taskRepositoryMock
             .Setup(repository => repository.GetByIdAsync(taskId, It.IsAny<CancellationToken>()))
@@ -704,7 +929,7 @@ public sealed class TaskServiceTests
         // Arrange
         var taskId = Guid.NewGuid();
         var otherUserId = Guid.NewGuid();
-        var task = TaskItem.Create(taskId, otherUserId, "Other user task", _dueDate);
+        var task = CreateTaskItem(taskId, otherUserId, "Other user task");
 
         _taskRepositoryMock
             .Setup(repository => repository.GetByIdAsync(taskId, It.IsAny<CancellationToken>()))

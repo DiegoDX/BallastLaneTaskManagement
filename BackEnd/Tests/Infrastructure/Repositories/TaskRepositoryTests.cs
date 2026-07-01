@@ -1,3 +1,4 @@
+using Application.Interfaces.Repositories;
 using Domain.Entities;
 using Domain.Enums;
 using FluentAssertions;
@@ -41,11 +42,14 @@ public sealed class TaskRepositoryTests : IAsyncLifetime
         var taskId = Guid.NewGuid();
         var dueDate = new DateTime(2026, 8, 15, 0, 0, 0, DateTimeKind.Utc);
 
+        var createdAtUtc = new DateTime(2026, 8, 1, 10, 0, 0, DateTimeKind.Utc);
+
         var task = TaskItem.Create(
             taskId,
             user.Id,
             "Write integration tests",
             dueDate,
+            createdAtUtc,
             "Cover repository CRUD",
             TaskItemStatus.InProgress);
 
@@ -73,13 +77,16 @@ public sealed class TaskRepositoryTests : IAsyncLifetime
         var firstTaskId = Guid.NewGuid();
         var secondTaskId = Guid.NewGuid();
         var dueDate = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var firstCreatedAt = new DateTime(2026, 9, 1, 8, 0, 0, DateTimeKind.Utc);
+        var secondCreatedAt = new DateTime(2026, 9, 1, 9, 0, 0, DateTimeKind.Utc);
 
-        var firstTask = TaskItem.Create(firstTaskId, user.Id, "First task", dueDate);
+        var firstTask = TaskItem.Create(firstTaskId, user.Id, "First task", dueDate, firstCreatedAt);
         var secondTask = TaskItem.Create(
             secondTaskId,
             user.Id,
             "Second task",
             dueDate.AddDays(1),
+            secondCreatedAt,
             status: TaskItemStatus.Completed);
 
         _createdTaskIds.AddRange([firstTaskId, secondTaskId]);
@@ -119,7 +126,13 @@ public sealed class TaskRepositoryTests : IAsyncLifetime
         // Arrange
         var user = await CreatePersistedUserAsync();
         var taskId = Guid.NewGuid();
-        var task = TaskItem.Create(taskId, user.Id, "Lookup task", new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc));
+        var dueDate = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        var task = TaskItem.Create(
+            taskId,
+            user.Id,
+            "Lookup task",
+            dueDate,
+            new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc));
         _createdTaskIds.Add(taskId);
 
         await _fixture.TaskRepository.CreateAsync(task);
@@ -151,7 +164,13 @@ public sealed class TaskRepositoryTests : IAsyncLifetime
         // Arrange
         var user = await CreatePersistedUserAsync();
         var taskId = Guid.NewGuid();
-        var task = TaskItem.Create(taskId, user.Id, "Original title", new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc));
+        var dueDate = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
+        var task = TaskItem.Create(
+            taskId,
+            user.Id,
+            "Original title",
+            dueDate,
+            new DateTime(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc));
         _createdTaskIds.Add(taskId);
 
         await _fixture.TaskRepository.CreateAsync(task);
@@ -175,7 +194,13 @@ public sealed class TaskRepositoryTests : IAsyncLifetime
         // Arrange
         var user = await CreatePersistedUserAsync();
         var taskId = Guid.NewGuid();
-        var task = TaskItem.Create(taskId, user.Id, "Task to delete", new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Utc));
+        var dueDate = new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Utc);
+        var task = TaskItem.Create(
+            taskId,
+            user.Id,
+            "Task to delete",
+            dueDate,
+            new DateTime(2026, 12, 1, 12, 0, 0, DateTimeKind.Utc));
 
         await _fixture.TaskRepository.CreateAsync(task);
         _createdTaskIds.Remove(taskId);
@@ -209,11 +234,14 @@ public sealed class TaskRepositoryTests : IAsyncLifetime
         var taskId = Guid.NewGuid();
         var maliciousTitle = "Title'; DELETE FROM Tasks;--";
 
+        var dueDate = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+
         var task = TaskItem.Create(
             taskId,
             user.Id,
             maliciousTitle,
-            new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+            dueDate,
+            new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
 
         _createdTaskIds.Add(taskId);
 
@@ -226,6 +254,182 @@ public sealed class TaskRepositoryTests : IAsyncLifetime
         loadedTask.Should().NotBeNull();
         loadedTask!.Title.Value.Should().Be(maliciousTitle);
         userTasks.Should().ContainSingle(item => item.Id == taskId);
+    }
+
+    [Fact]
+    public async Task SearchAsync_returns_paged_results_using_offset_fetch()
+    {
+        // Arrange
+        var user = await CreatePersistedUserAsync();
+        var dueDate = DateTime.UtcNow.AddDays(30);
+        var taskIds = new List<Guid>();
+
+        for (var index = 0; index < 12; index++)
+        {
+            var taskId = Guid.NewGuid();
+            taskIds.Add(taskId);
+
+            var task = TaskItem.Create(
+                taskId,
+                user.Id,
+                $"Task {index + 1:D2}",
+                dueDate.AddDays(index),
+                DateTime.UtcNow.AddMinutes(-index));
+
+            _createdTaskIds.Add(taskId);
+            await _fixture.TaskRepository.CreateAsync(task);
+        }
+
+        var criteria = new TaskSearchCriteria(
+            user.Id,
+            PageNumber: 2,
+            PageSize: 5,
+            TitleContains: null,
+            Status: null,
+            SortBy: TaskSortField.CreatedDate,
+            SortDirection: SortDirection.Asc);
+
+        // Act
+        var (items, totalRecords) = await _fixture.TaskRepository.SearchAsync(criteria);
+
+        // Assert
+        totalRecords.Should().Be(12);
+        items.Should().HaveCount(5);
+        items.First().Title.Value.Should().Be("Task 07");
+        items.Last().Title.Value.Should().Be("Task 03");
+    }
+
+    [Fact]
+    public async Task SearchAsync_filters_by_title_contains()
+    {
+        // Arrange
+        var user = await CreatePersistedUserAsync();
+        var dueDate = DateTime.UtcNow.AddDays(20);
+
+        var reportTaskId = Guid.NewGuid();
+        var meetingTaskId = Guid.NewGuid();
+
+        await _fixture.TaskRepository.CreateAsync(TaskItem.Create(
+            reportTaskId,
+            user.Id,
+            "Annual report",
+            dueDate,
+            DateTime.UtcNow.AddHours(-2)));
+
+        await _fixture.TaskRepository.CreateAsync(TaskItem.Create(
+            meetingTaskId,
+            user.Id,
+            "Team meeting",
+            dueDate.AddDays(1),
+            DateTime.UtcNow.AddHours(-1)));
+
+        _createdTaskIds.AddRange([reportTaskId, meetingTaskId]);
+
+        var criteria = new TaskSearchCriteria(
+            user.Id,
+            PageNumber: 1,
+            PageSize: 10,
+            TitleContains: "report",
+            Status: null,
+            SortBy: TaskSortField.CreatedDate,
+            SortDirection: SortDirection.Desc);
+
+        // Act
+        var (items, totalRecords) = await _fixture.TaskRepository.SearchAsync(criteria);
+
+        // Assert
+        totalRecords.Should().Be(1);
+        items.Should().ContainSingle();
+        items[0].Title.Value.Should().Be("Annual report");
+    }
+
+    [Fact]
+    public async Task SearchAsync_filters_by_status()
+    {
+        // Arrange
+        var user = await CreatePersistedUserAsync();
+        var dueDate = DateTime.UtcNow.AddDays(15);
+
+        var pendingTaskId = Guid.NewGuid();
+        var completedTaskId = Guid.NewGuid();
+
+        await _fixture.TaskRepository.CreateAsync(TaskItem.Create(
+            pendingTaskId,
+            user.Id,
+            "Pending task",
+            dueDate,
+            DateTime.UtcNow.AddHours(-2)));
+
+        await _fixture.TaskRepository.CreateAsync(TaskItem.Create(
+            completedTaskId,
+            user.Id,
+            "Completed task",
+            dueDate.AddDays(1),
+            DateTime.UtcNow.AddHours(-1),
+            status: TaskItemStatus.Completed));
+
+        _createdTaskIds.AddRange([pendingTaskId, completedTaskId]);
+
+        var criteria = new TaskSearchCriteria(
+            user.Id,
+            PageNumber: 1,
+            PageSize: 10,
+            TitleContains: null,
+            Status: TaskItemStatus.Completed,
+            SortBy: TaskSortField.CreatedDate,
+            SortDirection: SortDirection.Desc);
+
+        // Act
+        var (items, totalRecords) = await _fixture.TaskRepository.SearchAsync(criteria);
+
+        // Assert
+        totalRecords.Should().Be(1);
+        items.Should().ContainSingle();
+        items[0].Status.Should().Be(TaskItemStatus.Completed);
+    }
+
+    [Fact]
+    public async Task SearchAsync_sorts_by_title()
+    {
+        // Arrange
+        var user = await CreatePersistedUserAsync();
+        var dueDate = DateTime.UtcNow.AddDays(10);
+
+        var alphaTaskId = Guid.NewGuid();
+        var zetaTaskId = Guid.NewGuid();
+
+        await _fixture.TaskRepository.CreateAsync(TaskItem.Create(
+            zetaTaskId,
+            user.Id,
+            "Zeta task",
+            dueDate,
+            DateTime.UtcNow.AddHours(-1)));
+
+        await _fixture.TaskRepository.CreateAsync(TaskItem.Create(
+            alphaTaskId,
+            user.Id,
+            "Alpha task",
+            dueDate.AddDays(1),
+            DateTime.UtcNow.AddHours(-2)));
+
+        _createdTaskIds.AddRange([alphaTaskId, zetaTaskId]);
+
+        var criteria = new TaskSearchCriteria(
+            user.Id,
+            PageNumber: 1,
+            PageSize: 10,
+            TitleContains: null,
+            Status: null,
+            SortBy: TaskSortField.Title,
+            SortDirection: SortDirection.Asc);
+
+        // Act
+        var (items, _) = await _fixture.TaskRepository.SearchAsync(criteria);
+
+        // Assert
+        items.Should().HaveCount(2);
+        items[0].Title.Value.Should().Be("Alpha task");
+        items[1].Title.Value.Should().Be("Zeta task");
     }
 
     private async Task<User> CreatePersistedUserAsync()

@@ -2,6 +2,7 @@ using Application.DTOs.Auth;
 using Application.Exceptions;
 using Application.Interfaces;
 using Application.Interfaces.Repositories;
+using Application.Interfaces.Services;
 using Application.Services;
 using Domain.Entities;
 using FluentAssertions;
@@ -14,6 +15,7 @@ public sealed class AuthServiceTests
     private readonly Mock<IUserRepository> _userRepositoryMock = new();
     private readonly Mock<IPasswordHasher> _passwordHasherMock = new();
     private readonly Mock<IAuthTokenService> _authTokenServiceMock = new();
+    private readonly Mock<IRefreshTokenService> _refreshTokenServiceMock = new();
     private readonly AuthService _sut;
 
     public AuthServiceTests()
@@ -21,7 +23,8 @@ public sealed class AuthServiceTests
         _sut = new AuthService(
             _userRepositoryMock.Object,
             _passwordHasherMock.Object,
-            _authTokenServiceMock.Object);
+            _authTokenServiceMock.Object,
+            _refreshTokenServiceMock.Object);
     }
 
     [Fact]
@@ -176,16 +179,25 @@ public sealed class AuthServiceTests
             .Setup(tokenService => tokenService.GenerateToken(userId, username))
             .Returns(token);
 
+        _refreshTokenServiceMock
+            .Setup(service => service.IssueAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RefreshTokenResult("refresh-token", DateTime.UtcNow.AddDays(30)));
+
         // Act
-        var response = await _sut.LoginUserAsync(request);
+        var session = await _sut.LoginUserAsync(request);
 
         // Assert
-        response.UserId.Should().Be(userId);
-        response.Username.Should().Be(username);
-        response.Token.Should().Be(token);
+        session.Response.UserId.Should().Be(userId);
+        session.Response.Username.Should().Be(username);
+        session.Response.Token.Should().Be(token);
+        session.RefreshTokenPlain.Should().Be("refresh-token");
 
         _authTokenServiceMock.Verify(
             tokenService => tokenService.GenerateToken(userId, username),
+            Times.Once);
+
+        _refreshTokenServiceMock.Verify(
+            service => service.IssueAsync(userId, It.IsAny<CancellationToken>()),
             Times.Once);
     }
 

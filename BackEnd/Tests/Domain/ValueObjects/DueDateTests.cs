@@ -10,6 +10,7 @@ public sealed class DueDateTests
 {
     private static readonly Guid ValidTaskId = Guid.Parse("66666666-6666-6666-6666-666666666666");
     private static readonly Guid ValidUserId = Guid.Parse("77777777-7777-7777-7777-777777777777");
+    private static readonly DateTime ValidCreatedAtUtc = new(2026, 1, 15, 12, 0, 0, DateTimeKind.Utc);
 
     [Fact]
     public void Create_rejects_past_dates()
@@ -53,7 +54,8 @@ public sealed class DueDateTests
             "Valid title",
             null,
             TaskItemStatus.Pending,
-            default);
+            default,
+            ValidCreatedAtUtc);
 
         // Act & Assert
         act.Should().Throw<DomainValidationException>()
@@ -73,7 +75,8 @@ public sealed class DueDateTests
             "Valid title",
             null,
             TaskItemStatus.Pending,
-            pastDate);
+            pastDate,
+            ValidCreatedAtUtc);
 
         // Assert
         task.DueDate.Value.Should().Be(pastDate);

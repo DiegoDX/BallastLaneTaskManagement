@@ -1,3 +1,4 @@
+using Application.DTOs.Common;
 using Application.DTOs.Tasks;
 using Application.Exceptions;
 using Application.Interfaces.Repositories;
@@ -11,13 +12,21 @@ namespace Application.Services;
 
 public sealed class TaskService : ITaskService
 {
+    private const int MinPageSize = 1;
+    private const int MaxPageSize = 100;
+
     private readonly ITaskRepository _taskRepository;
     private readonly IUserRepository _userRepository;
+    private readonly TimeProvider _timeProvider;
 
-    public TaskService(ITaskRepository taskRepository, IUserRepository userRepository)
+    public TaskService(
+        ITaskRepository taskRepository,
+        IUserRepository userRepository,
+        TimeProvider timeProvider)
     {
         _taskRepository = taskRepository ?? throw new ArgumentNullException(nameof(taskRepository));
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
+        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     }
 
     public async Task<TaskResponse> CreateTaskAsync(
@@ -42,6 +51,7 @@ public sealed class TaskService : ITaskService
                 request.UserId,
                 request.Title,
                 request.DueDate,
+                _timeProvider.GetUtcNow().UtcDateTime,
                 request.Description);
         }
         catch (DomainValidationException ex)
@@ -127,8 +137,9 @@ public sealed class TaskService : ITaskService
         return TaskMapper.ToResponse(task);
     }
 
-    public async Task<IReadOnlyList<TaskResponse>> GetTasksByUserAsync(
+    public async Task<PagedResult<TaskListItemResponse>> SearchTasksAsync(
         Guid userId,
+        TaskSearchRequest request,
         CancellationToken cancellationToken = default)
     {
         if (userId == Guid.Empty)
@@ -136,18 +147,56 @@ public sealed class TaskService : ITaskService
             throw new ValidationException("User id is required.");
         }
 
+        request ??= new TaskSearchRequest();
+
+        ValidatePagination(request.PageNumber, request.PageSize);
+        ValidateCreatedByUserId(request.CreatedByUserId, userId);
+
+        TaskItemStatus? statusFilter = null;
+        if (!string.IsNullOrWhiteSpace(request.Status))
+        {
+            statusFilter = ParseStatus(request.Status);
+        }
+
+        var sortBy = ParseSortField(request.SortBy);
+        var sortDirection = ParseSortDirection(request.SortBy, request.SortDirection);
+
+        var filterUserId = request.CreatedByUserId ?? userId;
+
         var user = await _userRepository
-            .GetByIdAsync(userId, cancellationToken);
+            .GetByIdAsync(filterUserId, cancellationToken);
 
         if (user is null)
         {
-            throw new NotFoundException($"User with id '{userId}' was not found.");
+            throw new NotFoundException($"User with id '{filterUserId}' was not found.");
         }
 
-        var tasks = await _taskRepository
-            .GetByUserIdAsync(userId, cancellationToken);
+        var criteria = new TaskSearchCriteria(
+            filterUserId,
+            request.PageNumber,
+            request.PageSize,
+            string.IsNullOrWhiteSpace(request.Title) ? null : request.Title.Trim(),
+            statusFilter,
+            sortBy,
+            sortDirection);
 
-        return tasks.Select(TaskMapper.ToResponse).ToList();
+        var (items, totalRecords) = await _taskRepository
+            .SearchAsync(criteria, cancellationToken);
+
+        var totalPages = totalRecords == 0
+            ? 0
+            : (int)Math.Ceiling(totalRecords / (double)request.PageSize);
+
+        var responses = items
+            .Select(TaskMapper.ToListItemResponse)
+            .ToList();
+
+        return new PagedResult<TaskListItemResponse>(
+            responses,
+            request.PageNumber,
+            request.PageSize,
+            totalRecords,
+            totalPages);
     }
 
     public async Task DeleteTaskAsync(
@@ -264,5 +313,70 @@ public sealed class TaskService : ITaskService
             throw new ValidationException(
                 $"Cannot transition task status from '{current}' to '{requested}'.");
         }
+    }
+
+    private static void ValidatePagination(int pageNumber, int pageSize)
+    {
+        if (pageNumber <= 0)
+        {
+            throw new ValidationException("PageNumber must be greater than 0.");
+        }
+
+        if (pageSize < MinPageSize || pageSize > MaxPageSize)
+        {
+            throw new ValidationException($"PageSize must be between {MinPageSize} and {MaxPageSize}.");
+        }
+    }
+
+    private static void ValidateCreatedByUserId(Guid? createdByUserId, Guid authenticatedUserId)
+    {
+        if (createdByUserId is null)
+        {
+            return;
+        }
+
+        if (createdByUserId == Guid.Empty)
+        {
+            throw new ValidationException("CreatedByUserId cannot be empty.");
+        }
+
+        if (createdByUserId != authenticatedUserId)
+        {
+            throw new ValidationException("Cannot filter tasks for another user.");
+        }
+    }
+
+    private static TaskSortField ParseSortField(string? sortBy)
+    {
+        if (string.IsNullOrWhiteSpace(sortBy))
+        {
+            return TaskSortField.CreatedDate;
+        }
+
+        if (!Enum.TryParse<TaskSortField>(sortBy, ignoreCase: true, out var parsed)
+            || !Enum.IsDefined(parsed))
+        {
+            throw new ValidationException("SortBy must be one of: CreatedDate, Title, or Status.");
+        }
+
+        return parsed;
+    }
+
+    private static SortDirection ParseSortDirection(string? sortBy, string? sortDirection)
+    {
+        if (string.IsNullOrWhiteSpace(sortDirection))
+        {
+            return string.IsNullOrWhiteSpace(sortBy)
+                ? SortDirection.Desc
+                : SortDirection.Asc;
+        }
+
+        if (!Enum.TryParse<SortDirection>(sortDirection, ignoreCase: true, out var parsed)
+            || !Enum.IsDefined(parsed))
+        {
+            throw new ValidationException("SortDirection must be Asc or Desc.");
+        }
+
+        return parsed;
     }
 }

@@ -1,4 +1,5 @@
 using Api.Extensions;
+using Application.DTOs.Common;
 using Application.DTOs.Tasks;
 using Application.Interfaces.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -19,13 +20,16 @@ public sealed class TasksController : ControllerBase
     }
 
     [HttpGet]
-    [ProducesResponseType(typeof(IReadOnlyList<TaskResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PagedResult<TaskListItemResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> GetTasks(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetTasks(
+        [FromQuery] TaskSearchRequest request,
+        CancellationToken cancellationToken)
     {
         var userId = User.GetUserId();
         var tasks = await _taskService
-            .GetTasksByUserAsync(userId, cancellationToken);
+            .SearchTasksAsync(userId, request, cancellationToken);
 
         return Ok(tasks);
     }

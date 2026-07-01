@@ -11,6 +11,7 @@ public sealed class TaskTitleTests
     private static readonly Guid ValidTaskId = Guid.Parse("44444444-4444-4444-4444-444444444444");
     private static readonly Guid ValidUserId = Guid.Parse("55555555-5555-5555-5555-555555555555");
     private static readonly DateTime ValidDueDate = new(2026, 12, 31, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime ValidCreatedAtUtc = new(2026, 1, 15, 12, 0, 0, DateTimeKind.Utc);
 
     [Fact]
     public void Create_rejects_title_exceeding_max_length()
@@ -36,7 +37,8 @@ public sealed class TaskTitleTests
             "   ",
             null,
             TaskItemStatus.Pending,
-            ValidDueDate);
+            ValidDueDate,
+            ValidCreatedAtUtc);
 
         // Act & Assert
         act.Should().Throw<DomainValidationException>()
@@ -56,7 +58,8 @@ public sealed class TaskTitleTests
             tooLongTitle,
             null,
             TaskItemStatus.Pending,
-            ValidDueDate);
+            ValidDueDate,
+            ValidCreatedAtUtc);
 
         // Assert
         act.Should().Throw<DomainValidationException>()

@@ -18,6 +18,8 @@ public sealed class TaskItem
 
     public DueDate DueDate { get; private set; } = null!;
 
+    public DateTime CreatedAtUtc { get; private set; }
+
     private TaskItem()
     {
     }
@@ -27,6 +29,7 @@ public sealed class TaskItem
         Guid userId,
         string title,
         DateTime dueDate,
+        DateTime createdAtUtc,
         string? description = null,
         TaskItemStatus status = TaskItemStatus.Pending)
     {
@@ -40,6 +43,11 @@ public sealed class TaskItem
             throw new DomainValidationException("User id cannot be empty.");
         }
 
+        if (createdAtUtc == default)
+        {
+            throw new DomainValidationException("Created date cannot be empty.");
+        }
+
         ValidateStatus(status);
 
         return new TaskItem
@@ -49,7 +57,8 @@ public sealed class TaskItem
             Title = TaskTitle.Create(title),
             Description = NormalizeDescription(description),
             Status = status,
-            DueDate = DueDate.Create(dueDate)
+            DueDate = DueDate.Create(dueDate),
+            CreatedAtUtc = createdAtUtc
         };
     }
 
@@ -59,8 +68,14 @@ public sealed class TaskItem
         string title,
         string? description,
         TaskItemStatus status,
-        DateTime dueDate)
+        DateTime dueDate,
+        DateTime createdAtUtc)
     {
+        if (createdAtUtc == default)
+        {
+            throw new DomainValidationException("Created date cannot be empty.");
+        }
+
         ValidateStatus(status);
 
         return new TaskItem
@@ -70,7 +85,8 @@ public sealed class TaskItem
             Title = TaskTitle.FromPersistence(title),
             Description = description,
             Status = status,
-            DueDate = DueDate.FromPersistence(dueDate)
+            DueDate = DueDate.FromPersistence(dueDate),
+            CreatedAtUtc = createdAtUtc
         };
     }
 
