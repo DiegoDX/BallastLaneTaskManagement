@@ -4,6 +4,11 @@
 *.user
 *.suo
 
+.vs/
+**/.vs/
+bin/
+obj/
+
 # Angular
 **/node_modules/
 dist/

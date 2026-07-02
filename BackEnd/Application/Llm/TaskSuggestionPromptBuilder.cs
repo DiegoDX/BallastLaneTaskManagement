@@ -21,6 +21,19 @@ public static class TaskSuggestionPromptBuilder
         return new LlmChatRequest(messages, Temperature: DefaultTemperature);
     }
 
+    public static LlmChatRequest BuildBatchChatRequest(string prompt, int count)
+    {
+        ArgumentNullException.ThrowIfNull(prompt);
+
+        var messages = new List<LlmMessage>
+        {
+            new(LlmMessageRole.System, BuildBatchSystemMessage(count)),
+            new(LlmMessageRole.User, prompt.Trim())
+        };
+
+        return new LlmChatRequest(messages, Temperature: DefaultTemperature);
+    }
+
     private static string BuildSystemMessage()
     {
         return
@@ -36,6 +49,25 @@ public static class TaskSuggestionPromptBuilder
             """
             - description may be an empty string when no extra detail is needed
             - keep the title actionable and concise
+            """;
+    }
+
+    private static string BuildBatchSystemMessage(int count)
+    {
+        return
+            """
+            You are a task planning assistant. Given a user's natural-language description, suggest a batch of concise task titles and optional descriptions.
+
+            Respond with JSON only, no markdown fences or extra text, using this exact shape:
+            {"tasks":[{"title":"...","description":"..."}]}
+
+            Rules:
+            """ +
+            $"- return exactly {count} tasks in the tasks array\n" +
+            $"- each title must be non-empty and at most {TaskTitle.MaxLength} characters\n" +
+            """
+            - each description may be an empty string when no extra detail is needed
+            - keep titles actionable and concise
             """;
     }
 }

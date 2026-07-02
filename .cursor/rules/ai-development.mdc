@@ -1,3 +1,20 @@
 ---
+description: AI Development Rules
 alwaysApply: true
 ---
+
+LLM integrations must:
+
+- Be provider independent.
+- Depend on abstractions.
+- Read configuration from appsettings.
+- Never hardcode secrets.
+- Support cancellation tokens.
+- Use structured logging.
+- Handle transient failures.
+- Keep prompts outside controllers.
+- Separate prompt construction from transport logic.
+
+Before implementing any feature,
+read AI_PLAYBOOK.md
+and follow it.

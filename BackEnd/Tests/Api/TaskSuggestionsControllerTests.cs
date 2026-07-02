@@ -107,6 +107,87 @@ public sealed class TaskSuggestionsControllerTests
         body.Description.Should().Be("Include revenue and expense breakdown.");
     }
 
+    [Fact]
+    public async Task Post_suggestions_create_returns_unauthorized_without_token()
+    {
+        // Arrange
+        var request = new TaskSuggestionCreateRequest(
+            "Plan onboarding for new developer",
+            TaskCount: 2,
+            DueDate: DateTime.UtcNow.AddDays(7),
+            Tasks: null);
+
+        // Act
+        var response = await _factory.HttpClient.PostAsJsonAsync(ApiRoutes.TaskSuggestionsCreate, request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Post_suggestions_create_returns_bad_request_when_task_count_is_invalid()
+    {
+        // Arrange
+        var authenticatedClient = await CreateRegisteredUserAsync();
+        var request = new TaskSuggestionCreateRequest(
+            "Plan sprint",
+            TaskCount: 0,
+            DueDate: null,
+            Tasks: null);
+
+        // Act
+        var (response, error) = await authenticatedClient
+            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.TaskSuggestionsCreate, JsonContent.Create(request))
+            .ContinueWith(task => task.Result.ReadErrorAsync())
+            .Unwrap();
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        error.Should().NotBeNull();
+        error!.Message.Should().Be($"Task count must be between 1 and {TaskSuggestionLimits.MaxBatchSize}.");
+    }
+
+    [Fact]
+    public async Task Post_suggestions_create_returns_created_with_tasks_when_llm_client_succeeds()
+    {
+        // Arrange
+        await using var factory = new TaskSuggestionsMockLlmFixture();
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+
+        var authenticatedClient = await ApiAuthHelper.RegisterAndLoginAsync(
+            client,
+            $"suggest_create_user_{Guid.NewGuid():N}",
+            "password123");
+
+        factory.TrackUser(authenticatedClient.UserId);
+
+        var dueDate = DateTime.UtcNow.AddDays(10);
+        var request = new TaskSuggestionCreateRequest(
+            "Plan onboarding for new developer",
+            TaskCount: 2,
+            dueDate,
+            Tasks: null);
+
+        // Act
+        var (response, body) = await authenticatedClient
+            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.TaskSuggestionsCreate, JsonContent.Create(request))
+            .ContinueWith(task => task.Result.ReadJsonAsync<IReadOnlyList<TaskResponse>>())
+            .Unwrap();
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        body.Should().NotBeNull();
+        body!.Should().HaveCount(2);
+        body.Select(task => task.Title).Should().Equal(
+            "Onboarding task one",
+            "Onboarding task two");
+        body.Should().OnlyContain(task => task.UserId == authenticatedClient.UserId);
+        body.Should().OnlyContain(task => task.DueDate == dueDate);
+    }
+
     private async Task<AuthenticatedApiClient> CreateRegisteredUserAsync()
     {
         var username = $"suggest_user_{Guid.NewGuid():N}";
@@ -208,6 +289,23 @@ public sealed class TaskSuggestionsControllerTests
             LlmChatRequest request,
             CancellationToken cancellationToken = default)
         {
+            var systemMessage = request.Messages.FirstOrDefault(message => message.Role == LlmMessageRole.System)?.Content
+                ?? string.Empty;
+
+            if (systemMessage.Contains("return exactly", StringComparison.Ordinal))
+            {
+                const string batchContent = """
+                    {
+                      "tasks": [
+                        {"title":"Onboarding task one","description":"Set up workstation"},
+                        {"title":"Onboarding task two","description":"Meet the team"}
+                      ]
+                    }
+                    """;
+
+                return Task.FromResult(new LlmChatResponse(batchContent, "gpt-4o-mini"));
+            }
+
             const string content = """
                 {"title":"Prepare Q2 financial report","description":"Include revenue and expense breakdown."}
                 """;
