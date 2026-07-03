@@ -1,0 +1,94 @@
+<section class="tasks-page">
+  <header class="page-header">
+    <div>
+      <h1>My Tasks</h1>
+      <p class="subtitle">Manage your tasks in one place.</p>
+    </div>
+
+    <div class="header-actions">
+      <button type="button" class="btn-secondary" (click)="logout()">
+        Logout
+      </button>
+
+      <button type="button" class="btn-secondary" (click)="navigateToSuggest()" [disabled]="isLoading()">
+        Create with AI
+      </button>
+
+      <button type="button" class="btn-primary" (click)="navigateToCreate()" [disabled]="isLoading()">
+        Create task
+      </button>
+    </div>
+  </header>
+
+  @if (successMessage()) {
+    <div class="alert alert-success" role="status">
+      {{ successMessage() }}
+    </div>
+  }
+
+  @if (errorMessage()) {
+    <div class="alert alert-error" role="alert">
+      {{ errorMessage() }}
+    </div>
+  }
+
+  @if (isLoading()) {
+    <div class="state-message" role="status">Loading tasks...</div>
+  } @else if (tasks().length === 0) {
+    <div class="empty-state">
+      <h2>No tasks yet</h2>
+      <p>Create your first task to get started.</p>
+      <div class="empty-state-actions">
+        <button type="button" class="btn-secondary" (click)="navigateToSuggest()">
+          Create with AI
+        </button>
+        <button type="button" class="btn-primary" (click)="navigateToCreate()">
+          Create task
+        </button>
+      </div>
+    </div>
+  } @else {
+    <div class="task-grid">
+      @for (task of tasks(); track task.id) {
+        <article class="task-card">
+          <div class="task-card-header">
+            <h2>{{ task.title }}</h2>
+            <span class="status-badge" [class]="task.status.toLowerCase()">
+              {{ formatTaskStatus(task.status) }}
+            </span>
+          </div>
+
+          @if (task.description) {
+            <p class="task-description">{{ task.description }}</p>
+          }
+
+          <p class="task-meta">Due: {{ formatDueDate(task.dueDate) }}</p>
+
+          <div class="task-actions">
+            <button
+              type="button"
+              class="btn-secondary"
+              (click)="navigateToEdit(task.id)"
+              [disabled]="deletingTaskId() === task.id"
+            >
+              Edit
+            </button>
+
+            <button
+              type="button"
+              class="btn-danger"
+              (click)="onDeleteTask(task)"
+              [disabled]="deletingTaskId() === task.id"
+            >
+              @if (deletingTaskId() === task.id) {
+                Deleting...
+              } @else {
+                Delete
+              }
+            </button>
+          </div>
+        </article>
+      }
+    </div>
+  }
+</section>

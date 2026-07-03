@@ -1,0 +1,83 @@
+<section class="task-form-page">
+  <div class="form-card">
+    <header class="form-header">
+      <h1>{{ isEditMode() ? 'Edit task' : 'Create task' }}</h1>
+      <a routerLink="/tasks" class="back-link">Back to tasks</a>
+    </header>
+
+    @if (isLoading()) {
+      <div class="state-message" role="status">Loading task...</div>
+    } @else {
+      @if (errorMessage()) {
+        <div class="alert alert-error" role="alert">
+          {{ errorMessage() }}
+        </div>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
+        <div class="form-field">
+          <label for="title">Title</label>
+          <input
+            id="title"
+            type="text"
+            formControlName="title"
+            [class.invalid]="isFieldInvalid('title')"
+          />
+
+          @if (isFieldInvalid('title')) {
+            <span class="field-error">Title is required.</span>
+          }
+        </div>
+
+        <div class="form-field">
+          <label for="description">Description</label>
+          <textarea
+            id="description"
+            rows="4"
+            formControlName="description"
+            placeholder="Optional description"
+          ></textarea>
+        </div>
+
+        @if (!isEditMode()) {
+          <div class="form-field">
+            <label for="dueDate">Due date</label>
+            <input
+              id="dueDate"
+              type="date"
+              formControlName="dueDate"
+              [class.invalid]="isFieldInvalid('dueDate')"
+            />
+
+            @if (isFieldInvalid('dueDate')) {
+              <span class="field-error">Due date is required.</span>
+            }
+          </div>
+        }
+
+        @if (isEditMode()) {
+        <div class="form-field">
+          <label for="status">Status</label>
+          <select id="status" formControlName="status">
+            @for (status of statusOptions; track status) {
+              <option [value]="status">{{ status }}</option>
+            }
+          </select>
+        </div>
+        }
+
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" [disabled]="isSubmitting()">
+            @if (isSubmitting()) {
+              Saving...
+            } @else {
+              {{ isEditMode() ? 'Update task' : 'Create task' }}
+            }
+          </button>
+
+          <a routerLink="/tasks" class="btn-secondary">Cancel</a>
+        </div>
+      </form>
+    }
+  </div>
+</section>

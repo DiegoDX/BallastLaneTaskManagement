@@ -1,0 +1,148 @@
+<section class="task-suggestion-page">
+  <div class="form-card">
+    <header class="form-header">
+      <h1>Create tasks with AI</h1>
+      <a routerLink="/tasks" class="back-link">Back to tasks</a>
+    </header>
+
+    @if (errorMessage()) {
+      <div class="alert alert-error" role="alert">
+        {{ errorMessage() }}
+      </div>
+    }
+
+    @if (currentStep() === 'configure') {
+      <form [formGroup]="configureForm" (ngSubmit)="onContinue()" novalidate>
+        <p class="step-indicator">Step 1 of 2 — Configure</p>
+
+        <div class="form-field">
+          <label for="prompt">Prompt</label>
+          <textarea
+            id="prompt"
+            rows="4"
+            formControlName="prompt"
+            placeholder="Describe the tasks you want to create, e.g. Plan onboarding for a new developer"
+            [class.invalid]="isConfigureFieldInvalid('prompt')"
+          ></textarea>
+
+          @if (isConfigureFieldInvalid('prompt')) {
+            <span class="field-error">Prompt is required.</span>
+          }
+        </div>
+
+        <div class="form-field">
+          <label for="taskCount">Number of tasks</label>
+          <input
+            id="taskCount"
+            type="number"
+            formControlName="taskCount"
+            min="1"
+            [max]="maxBatchSize"
+            [class.invalid]="isConfigureFieldInvalid('taskCount')"
+          />
+
+          @if (isConfigureFieldInvalid('taskCount')) {
+            <span class="field-error">
+              Enter a number between 1 and {{ maxBatchSize }}.
+            </span>
+          }
+        </div>
+
+        <div class="form-field">
+          <label for="dueDate">Default due date (optional)</label>
+          <input id="dueDate" type="date" formControlName="dueDate" />
+          <span class="field-hint">
+            Applied to tasks without their own due date.
+          </span>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">Continue</button>
+          <button type="button" class="btn-secondary" (click)="onBack()">
+            Cancel
+          </button>
+        </div>
+      </form>
+    } @else {
+      <div class="review-step">
+        <p class="step-indicator">Step 2 of 2 — Review &amp; overrides</p>
+
+        <p class="review-summary">
+          Creating {{ configureForm.controls.taskCount.value }} task(s) from
+          your prompt. Leave a slot's title empty to let AI fill it on create.
+        </p>
+
+        <form [formGroup]="slotsForm" novalidate>
+          <div formArrayName="slots" class="slots-list">
+            @for (slot of slots.controls; track $index; let i = $index) {
+              <div class="slot-card" [formGroupName]="i">
+                <h2 class="slot-title">{{ slotLabel(i) }}</h2>
+
+                <div class="form-field">
+                  <label [for]="'slot-title-' + i">Title</label>
+                  <input
+                    [id]="'slot-title-' + i"
+                    type="text"
+                    formControlName="title"
+                    placeholder="Leave empty for AI-generated title"
+                  />
+                </div>
+
+                <div class="form-field">
+                  <label [for]="'slot-description-' + i">Description</label>
+                  <textarea
+                    [id]="'slot-description-' + i"
+                    rows="3"
+                    formControlName="description"
+                    placeholder="Optional description"
+                  ></textarea>
+                </div>
+
+                <div class="form-field">
+                  <label [for]="'slot-dueDate-' + i">Due date (optional)</label>
+                  <input
+                    [id]="'slot-dueDate-' + i"
+                    type="date"
+                    formControlName="dueDate"
+                  />
+                </div>
+              </div>
+            }
+          </div>
+        </form>
+
+        <div class="form-actions review-actions">
+          <button
+            type="button"
+            class="btn-secondary"
+            (click)="onPreviewSample()"
+            [disabled]="isLoadingPreview() || isPreviewSampleDisabled()"
+          >
+            @if (isLoadingPreview()) {
+              Loading preview...
+            } @else {
+              Preview sample
+            }
+          </button>
+
+          <button
+            type="button"
+            class="btn-primary"
+            (click)="onCreate()"
+            [disabled]="isSubmitting()"
+          >
+            @if (isSubmitting()) {
+              Creating...
+            } @else {
+              Create {{ configureForm.controls.taskCount.value }} tasks
+            }
+          </button>
+
+          <button type="button" class="btn-secondary" (click)="onBack()">
+            Back
+          </button>
+        </div>
+      </div>
+    }
+  </div>
+</section>
