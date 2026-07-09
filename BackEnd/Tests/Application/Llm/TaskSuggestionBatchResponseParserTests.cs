@@ -22,7 +22,7 @@ public sealed class TaskSuggestionBatchResponseParserTests
             """;
 
         // Act
-        var result = TaskSuggestionBatchResponseParser.Parse(content, expectedCount: 2);
+        var result = TaskSuggestionBatchResponseParser.Parse(content);
 
         // Assert
         result.Should().BeEquivalentTo([
@@ -40,7 +40,7 @@ public sealed class TaskSuggestionBatchResponseParserTests
             """;
 
         // Act
-        var result = TaskSuggestionBatchResponseParser.Parse(content, expectedCount: 1);
+        var result = TaskSuggestionBatchResponseParser.Parse(content);
 
         // Assert
         result.Should().ContainSingle()
@@ -48,26 +48,101 @@ public sealed class TaskSuggestionBatchResponseParserTests
     }
 
     [Fact]
-    public void Parse_throws_when_task_count_does_not_match_expected_count()
+    public void Parse_accepts_dynamic_task_count()
     {
         // Arrange
         const string content = """
-            {"tasks":[{"title":"Only one","description":"details"}]}
+            {
+              "tasks": [
+                {"title":"Task one","description":"details"},
+                {"title":"Task two","description":"details"},
+                {"title":"Task three","description":"details"}
+              ]
+            }
             """;
 
         // Act
-        var act = () => TaskSuggestionBatchResponseParser.Parse(content, expectedCount: 3);
+        var result = TaskSuggestionBatchResponseParser.Parse(content);
+
+        // Assert
+        result.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public void Parse_throws_when_task_count_exceeds_max_batch_size()
+    {
+        // Arrange
+        var tasks = string.Join(',', Enumerable.Range(1, TaskSuggestionLimits.MaxBatchSize + 1)
+            .Select(index => $$"""{"title":"Task {{index}}","description":"details"}"""));
+        var content = $$"""{"tasks":[{{tasks}}]}""";
+
+        // Act
+        var act = () => TaskSuggestionBatchResponseParser.Parse(content);
 
         // Assert
         var exception = act.Should().Throw<ValidationException>().Which;
-        exception.Message.Should().Be("Task suggestion batch must contain exactly 3 tasks.");
+        exception.Message.Should().Be(
+            $"Task suggestion batch must contain at most {TaskSuggestionLimits.MaxBatchSize} tasks.");
+    }
+
+    [Fact]
+    public void Parse_ignores_extra_properties_on_tasks()
+    {
+        // Arrange
+        const string content = """
+            {
+              "tasks": [
+                {
+                  "title":"Deploy release",
+                  "description":"Push to production",
+                  "priority":"High",
+                  "estimatedHours":4
+                }
+              ]
+            }
+            """;
+
+        // Act
+        var result = TaskSuggestionBatchResponseParser.Parse(content);
+
+        // Assert
+        result.Should().ContainSingle()
+            .Which.Should().BeEquivalentTo(new TaskSuggestionBatchItem("Deploy release", "Push to production"));
+    }
+
+    [Fact]
+    public void Parse_throws_when_tasks_array_is_empty()
+    {
+        // Arrange
+        const string content = """{"tasks":[]}""";
+
+        // Act
+        var act = () => TaskSuggestionBatchResponseParser.Parse(content);
+
+        // Assert
+        var exception = act.Should().Throw<ValidationException>().Which;
+        exception.Message.Should().Be("Task suggestion batch must contain at least one task.");
+    }
+
+    [Fact]
+    public void Parse_throws_when_title_is_missing()
+    {
+        // Arrange
+        const string content = """{"tasks":[{"title":"   ","description":"details"}]}""";
+
+        // Act
+        var act = () => TaskSuggestionBatchResponseParser.Parse(content);
+
+        // Assert
+        var exception = act.Should().Throw<ValidationException>().Which;
+        exception.Message.Should().Be("Title is required.");
     }
 
     [Fact]
     public void Parse_throws_when_json_is_malformed()
     {
         // Act
-        var act = () => TaskSuggestionBatchResponseParser.Parse("not-json", expectedCount: 1);
+        var act = () => TaskSuggestionBatchResponseParser.Parse("not-json");
 
         // Assert
         var exception = act.Should().Throw<ValidationException>().Which;
@@ -82,7 +157,7 @@ public sealed class TaskSuggestionBatchResponseParserTests
         var content = $$"""{"tasks":[{"title":"{{longTitle}}","description":"details"}]}""";
 
         // Act
-        var act = () => TaskSuggestionBatchResponseParser.Parse(content, expectedCount: 1);
+        var act = () => TaskSuggestionBatchResponseParser.Parse(content);
 
         // Assert
         act.Should().Throw<ValidationException>()
@@ -93,7 +168,7 @@ public sealed class TaskSuggestionBatchResponseParserTests
     public void Parse_throws_when_content_is_empty()
     {
         // Act
-        var act = () => TaskSuggestionBatchResponseParser.Parse("   ", expectedCount: 1);
+        var act = () => TaskSuggestionBatchResponseParser.Parse("   ");
 
         // Assert
         var exception = act.Should().Throw<ValidationException>().Which;

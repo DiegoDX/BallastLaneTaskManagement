@@ -37,6 +37,24 @@ public sealed class TaskSuggestionsController : ControllerBase
         return Ok(suggestion);
     }
 
+    [HttpPost("suggestions/generate")]
+    [ProducesResponseType(typeof(TaskSuggestionBatchResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GenerateBatch(
+        [FromBody] TaskSuggestionGenerateRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId();
+
+        var response = await _taskSuggestionService
+            .GenerateBatchAsync(userId, request, cancellationToken);
+
+        return Ok(response);
+    }
+
     [HttpPost("suggestions/create")]
     [ProducesResponseType(typeof(IReadOnlyList<TaskResponse>), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

@@ -8,7 +8,10 @@ export const API_PATHS = {
   tasks: {
     base: '/tasks',
     byId: (id: string) => `/tasks/${id}`,
-    suggestions: '/tasks/suggestions',
+    suggestionsGenerate: '/tasks/suggestions/generate',
     suggestionsCreate: '/tasks/suggestions/create',
+  },
+  chat: {
+    base: '/chat',
   },
 } as const;

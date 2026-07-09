@@ -23,6 +23,20 @@ public sealed class LlmSettingsValidatorTests
     }
 
     [Fact]
+    public void Validate_succeeds_for_valid_ollama_settings_in_development()
+    {
+        // Arrange
+        var validator = CreateValidator("Development");
+        var settings = CreateValidOllamaSettings();
+
+        // Act
+        var result = validator.Validate(Options.DefaultName, settings);
+
+        // Assert
+        result.Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
     public void Validate_succeeds_in_production_when_api_key_and_model_are_configured()
     {
         // Arrange
@@ -88,6 +102,93 @@ public sealed class LlmSettingsValidatorTests
     }
 
     [Fact]
+    public void Validate_succeeds_in_production_when_ollama_model_and_base_url_are_configured()
+    {
+        // Arrange
+        var validator = CreateValidator("Production");
+        var settings = new LlmSettings
+        {
+            Provider = LlmSettings.OllamaProvider,
+            Model = "llama3.2",
+            BaseUrl = "http://localhost:11434",
+            TimeoutSeconds = 120,
+            MaxRetryAttempts = 2
+        };
+
+        // Act
+        var result = validator.Validate(Options.DefaultName, settings);
+
+        // Assert
+        result.Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Validate_fails_in_production_when_ollama_model_is_missing()
+    {
+        // Arrange
+        var validator = CreateValidator("Production");
+        var settings = new LlmSettings
+        {
+            Provider = LlmSettings.OllamaProvider,
+            Model = "   ",
+            BaseUrl = "http://localhost:11434",
+            TimeoutSeconds = 60,
+            MaxRetryAttempts = 2
+        };
+
+        // Act
+        var result = validator.Validate(Options.DefaultName, settings);
+
+        // Assert
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain("Llm:Model is required in Production when Provider is Ollama.");
+    }
+
+    [Fact]
+    public void Validate_fails_in_production_when_ollama_base_url_is_missing()
+    {
+        // Arrange
+        var validator = CreateValidator("Production");
+        var settings = new LlmSettings
+        {
+            Provider = LlmSettings.OllamaProvider,
+            Model = "llama3.2",
+            BaseUrl = null,
+            TimeoutSeconds = 60,
+            MaxRetryAttempts = 2
+        };
+
+        // Act
+        var result = validator.Validate(Options.DefaultName, settings);
+
+        // Assert
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain("Llm:BaseUrl is required in Production when Provider is Ollama.");
+    }
+
+    [Fact]
+    public void Validate_fails_in_production_when_ollama_base_url_is_not_valid_uri()
+    {
+        // Arrange
+        var validator = CreateValidator("Production");
+        var settings = new LlmSettings
+        {
+            Provider = LlmSettings.OllamaProvider,
+            Model = "llama3.2",
+            BaseUrl = "not-a-valid-uri",
+            TimeoutSeconds = 60,
+            MaxRetryAttempts = 2
+        };
+
+        // Act
+        var result = validator.Validate(Options.DefaultName, settings);
+
+        // Assert
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain("Llm:BaseUrl must be a valid absolute URI when Provider is Ollama.");
+    }
+
+    [Fact]
     public void Validate_fails_when_provider_is_missing()
     {
         // Arrange
@@ -108,8 +209,30 @@ public sealed class LlmSettingsValidatorTests
     }
 
     [Theory]
+    [InlineData(LlmSettings.OpenAiProvider)]
+    [InlineData(LlmSettings.OllamaProvider)]
+    public void Validate_succeeds_when_provider_is_supported(string provider)
+    {
+        // Arrange
+        var validator = CreateValidator("Development");
+        var settings = new LlmSettings
+        {
+            Provider = provider,
+            Model = provider == LlmSettings.OpenAiProvider ? "gpt-4o-mini" : "llama3.2",
+            BaseUrl = provider == LlmSettings.OllamaProvider ? "http://localhost:11434" : null,
+            TimeoutSeconds = 60,
+            MaxRetryAttempts = 2
+        };
+
+        // Act
+        var result = validator.Validate(Options.DefaultName, settings);
+
+        // Assert
+        result.Succeeded.Should().BeTrue();
+    }
+
+    [Theory]
     [InlineData("Anthropic")]
-    [InlineData("Ollama")]
     public void Validate_fails_when_provider_is_not_supported(string provider)
     {
         // Arrange
@@ -128,6 +251,7 @@ public sealed class LlmSettingsValidatorTests
         result.Failed.Should().BeTrue();
         result.FailureMessage.Should().Contain("is not supported");
         result.FailureMessage.Should().Contain(LlmSettings.OpenAiProvider);
+        result.FailureMessage.Should().Contain(LlmSettings.OllamaProvider);
     }
 
     [Fact]
@@ -178,6 +302,18 @@ public sealed class LlmSettingsValidatorTests
             ApiKey = string.Empty,
             Model = "gpt-4o-mini",
             TimeoutSeconds = 60,
+            MaxRetryAttempts = 2
+        };
+    }
+
+    private static LlmSettings CreateValidOllamaSettings()
+    {
+        return new LlmSettings
+        {
+            Provider = LlmSettings.OllamaProvider,
+            Model = "llama3.2",
+            BaseUrl = "http://localhost:11434",
+            TimeoutSeconds = 120,
             MaxRetryAttempts = 2
         };
     }

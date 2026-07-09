@@ -1,1 +1,0 @@
-export const TASK_SUGGESTION_MAX_BATCH_SIZE = 10;

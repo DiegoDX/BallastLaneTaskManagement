@@ -10,6 +10,10 @@
         Logout
       </button>
 
+      <button type="button" class="btn-secondary" (click)="navigateToChat()" [disabled]="isLoading()">
+        AI Chat
+      </button>
+
       <button type="button" class="btn-secondary" (click)="navigateToSuggest()" [disabled]="isLoading()">
         Create with AI
       </button>

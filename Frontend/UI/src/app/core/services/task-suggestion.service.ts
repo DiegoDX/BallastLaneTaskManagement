@@ -5,20 +5,20 @@ import { environment } from '../../../environments/environment';
 import { API_PATHS } from '../../shared/helpers/api-paths.constants';
 import {
   TaskItem,
+  TaskSuggestionBatchResponse,
   TaskSuggestionCreateRequest,
   TaskSuggestionRequest,
-  TaskSuggestionResponse,
 } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class TaskSuggestionService {
   private readonly http = inject(HttpClient);
 
-  getSuggestionPreview(
+  generateBatch(
     request: TaskSuggestionRequest,
-  ): Observable<TaskSuggestionResponse> {
-    const url = `${environment.apiUrl}${API_PATHS.tasks.suggestions}`;
-    return this.http.post<TaskSuggestionResponse>(url, request);
+  ): Observable<TaskSuggestionBatchResponse> {
+    const url = `${environment.apiUrl}${API_PATHS.tasks.suggestionsGenerate}`;
+    return this.http.post<TaskSuggestionBatchResponse>(url, request);
   }
 
   createFromSuggestions(

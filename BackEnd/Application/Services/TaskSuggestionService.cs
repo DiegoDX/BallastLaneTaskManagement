@@ -48,58 +48,13 @@ public sealed class TaskSuggestionService : ITaskSuggestionService
         ValidateUserId(userId);
         ValidateCreateRequest(request);
 
-        var overrides = request.Tasks ?? Array.Empty<TaskSuggestionTaskOverride>();
-        var llmSlotCount = CountLlmSlots(request.TaskCount, overrides);
+        var results = new List<TaskResponse>(request.Tasks!.Count);
 
-        if (llmSlotCount > 0)
+        foreach (var item in request.Tasks!)
         {
-            ValidatePromptRequired(request.Prompt);
-        }
-
-        IReadOnlyList<TaskSuggestionBatchItem>? llmItems = null;
-
-        if (llmSlotCount > 0)
-        {
-            var chatRequest = TaskSuggestionPromptBuilder.BuildBatchChatRequest(
-                request.Prompt!.Trim(),
-                llmSlotCount);
-            ValidateLlmChatRequest(chatRequest);
-
-            var llmResponse = await _llmClient.CompleteChatAsync(chatRequest, cancellationToken);
-            llmItems = TaskSuggestionBatchResponseParser.Parse(llmResponse.Content, llmSlotCount);
-        }
-
-        var results = new List<TaskResponse>(request.TaskCount);
-        var llmIndex = 0;
-
-        for (var slotIndex = 0; slotIndex < request.TaskCount; slotIndex++)
-        {
-            var slotOverride = slotIndex < overrides.Count ? overrides[slotIndex] : null;
-
-            string title;
-            string description;
-
-            if (HasTitleOverride(slotOverride))
-            {
-                title = slotOverride!.Title!.Trim();
-                description = NormalizeOptional(slotOverride.Description);
-
-                if (title.Length > TaskTitle.MaxLength)
-                {
-                    throw new ValidationException("Title must be at most {MaxLength} characters long.");
-                }
-            }
-            else
-            {
-                var llmItem = llmItems![llmIndex++];
-                title = llmItem.Title;
-                description = llmItem.Description;
-            }
-
-            var dueDate = TaskSuggestionDueDateResolver.Resolve(
-                slotOverride?.DueDate,
-                request.DueDate,
-                _timeProvider);
+            var title = ValidateAndNormalizeTitle(item.Title);
+            var description = NormalizeOptional(item.Description);
+            var dueDate = TaskSuggestionDueDateResolver.Resolve(null, null, _timeProvider);
 
             var createRequest = new CreateTaskRequest(title, description, dueDate, userId);
             var created = await _taskService.CreateTaskAsync(createRequest, cancellationToken);
@@ -107,6 +62,24 @@ public sealed class TaskSuggestionService : ITaskSuggestionService
         }
 
         return results;
+    }
+
+    public async Task<TaskSuggestionBatchResponse> GenerateBatchAsync(
+        Guid userId,
+        TaskSuggestionGenerateRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateUserId(userId);
+        ValidateGenerateRequest(request);
+
+        var chatRequest = TaskSuggestionPromptBuilder.BuildBatchChatRequest(request.Prompt.Trim());
+        ValidateLlmChatRequest(chatRequest);
+
+        var llmResponse = await _llmClient.CompleteChatAsync(chatRequest, cancellationToken);
+
+        var tasks = TaskSuggestionBatchResponseParser.Parse(llmResponse.Content);
+
+        return new TaskSuggestionBatchResponse(tasks);
     }
 
     internal static void ValidateLlmChatRequest(LlmChatRequest request)
@@ -132,6 +105,19 @@ public sealed class TaskSuggestionService : ITaskSuggestionService
         }
     }
 
+    private static void ValidateGenerateRequest(TaskSuggestionGenerateRequest request)
+    {
+        if (request is null)
+        {
+            throw new ValidationException("Task suggestion generate request is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Prompt))
+        {
+            throw new ValidationException("Prompt is required.");
+        }
+    }
+
     private static void ValidateCreateRequest(TaskSuggestionCreateRequest request)
     {
         if (request is null)
@@ -139,52 +125,34 @@ public sealed class TaskSuggestionService : ITaskSuggestionService
             throw new ValidationException("Task suggestion create request is required.");
         }
 
-        if (request.TaskCount < 1 || request.TaskCount > TaskSuggestionLimits.MaxBatchSize)
+        if (request.Tasks is null || request.Tasks.Count == 0)
+        {
+            throw new ValidationException("Task suggestion batch must contain at least one task.");
+        }
+
+        if (request.Tasks.Count > TaskSuggestionLimits.MaxBatchSize)
         {
             throw new ValidationException(
-                $"Task count must be between 1 and {TaskSuggestionLimits.MaxBatchSize}.");
-        }
-
-        var overrides = request.Tasks;
-
-        if (overrides is not null && overrides.Count > request.TaskCount)
-        {
-            throw new ValidationException("Tasks collection cannot contain more items than task count.");
-        }
-
-        if (request.DueDate is not null && request.DueDate.Value == default)
-        {
-            throw new ValidationException("Due date cannot be empty.");
+                $"Task suggestion batch must contain at most {TaskSuggestionLimits.MaxBatchSize} tasks.");
         }
     }
 
-    private static void ValidatePromptRequired(string? prompt)
+    private static string ValidateAndNormalizeTitle(string? title)
     {
-        if (string.IsNullOrWhiteSpace(prompt))
+        if (string.IsNullOrWhiteSpace(title))
         {
-            throw new ValidationException("Prompt is required.");
-        }
-    }
-
-    private static int CountLlmSlots(int taskCount, IReadOnlyList<TaskSuggestionTaskOverride> overrides)
-    {
-        var llmSlots = 0;
-
-        for (var slotIndex = 0; slotIndex < taskCount; slotIndex++)
-        {
-            var slotOverride = slotIndex < overrides.Count ? overrides[slotIndex] : null;
-
-            if (!HasTitleOverride(slotOverride))
-            {
-                llmSlots++;
-            }
+            throw new ValidationException("Title is required.");
         }
 
-        return llmSlots;
-    }
+        var normalized = title.Trim();
 
-    private static bool HasTitleOverride(TaskSuggestionTaskOverride? slotOverride) =>
-        !string.IsNullOrWhiteSpace(slotOverride?.Title);
+        if (normalized.Length > TaskTitle.MaxLength)
+        {
+            throw new ValidationException("Title must be at most {MaxLength} characters long.");
+        }
+
+        return normalized;
+    }
 
     private static string NormalizeOptional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();

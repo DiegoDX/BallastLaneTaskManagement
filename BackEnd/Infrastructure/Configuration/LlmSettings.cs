@@ -6,6 +6,8 @@ public sealed class LlmSettings
 
     public const string OpenAiProvider = "OpenAI";
 
+    public const string OllamaProvider = "Ollama";
+
     public string Provider { get; init; } = OpenAiProvider;
 
     public string ApiKey { get; init; } = string.Empty;

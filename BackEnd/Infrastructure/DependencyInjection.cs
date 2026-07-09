@@ -25,7 +25,9 @@ public static class DependencyInjection
             .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<LlmSettings>, LlmSettingsValidator>();
-        services.AddSingleton<ILlmClient, OpenAiLlmClient>();
+        services.AddHttpClient<OllamaLlmClient>();
+        services.AddSingleton<OpenAiLlmClient>();
+        services.AddSingleton<ILlmClient, LlmClientFactory>();
 
         services.AddSingleton<ISqlConnectionFactory, SqlConnectionFactory>();
         services.AddScoped<IUserRepository, UserRepository>();

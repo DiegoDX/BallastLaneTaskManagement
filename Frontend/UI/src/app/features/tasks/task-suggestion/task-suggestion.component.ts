@@ -1,7 +1,6 @@
 import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
-  FormArray,
   FormBuilder,
   FormControl,
   FormGroup,
@@ -13,28 +12,13 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { finalize } from 'rxjs';
 import { TaskSuggestionService } from '../../../core/services/task-suggestion.service';
 import {
+  TaskSuggestionBatchItem,
   TaskSuggestionCreateRequest,
-  TaskSuggestionTaskOverride,
 } from '../../../core/models';
 import { resolveHttpErrorMessage } from '../../../shared/helpers/http-error.helper';
-import { TASK_SUGGESTION_MAX_BATCH_SIZE } from '../../../shared/helpers/task-suggestion.constants';
 
-type ConfigureFormControls = {
+type GenerateFormControls = {
   prompt: FormControl<string>;
-  taskCount: FormControl<number>;
-  dueDate: FormControl<string>;
-};
-
-type SlotFormControls = {
-  title: FormControl<string>;
-  description: FormControl<string>;
-  dueDate: FormControl<string>;
-};
-
-type SlotFormValue = {
-  title: string;
-  description: string;
-  dueDate: string;
 };
 
 @Component({
@@ -50,115 +34,74 @@ export class TaskSuggestionComponent {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
-  readonly maxBatchSize = TASK_SUGGESTION_MAX_BATCH_SIZE;
-
-  readonly currentStep = signal<'configure' | 'review'>('configure');
-  readonly isLoadingPreview = signal(false);
+  readonly hasPreview = signal(false);
+  readonly isGenerating = signal(false);
   readonly isSubmitting = signal(false);
   readonly errorMessage = signal<string | null>(null);
+  readonly previewJson = signal('');
 
-  readonly configureForm: FormGroup<ConfigureFormControls> =
+  readonly generateForm: FormGroup<GenerateFormControls> =
     this.formBuilder.nonNullable.group({
       prompt: ['', Validators.required],
-      taskCount: [
-        3,
-        [
-          Validators.required,
-          Validators.min(1),
-          Validators.max(TASK_SUGGESTION_MAX_BATCH_SIZE),
-        ],
-      ],
-      dueDate: [''],
     });
 
-  readonly slotsForm: FormGroup<{ slots: FormArray<FormGroup<SlotFormControls>> }> =
-    this.formBuilder.nonNullable.group({
-      slots: this.formBuilder.array<FormGroup<SlotFormControls>>([]),
-    });
+  onGenerate(): void {
+    if (this.isGenerating()) {
+      return;
+    }
 
-  get slots(): FormArray<FormGroup<SlotFormControls>> {
-    return this.slotsForm.controls.slots;
-  }
-
-  onContinue(): void {
-    if (this.configureForm.invalid) {
-      this.configureForm.markAllAsTouched();
+    if (this.generateForm.invalid) {
+      this.generateForm.markAllAsTouched();
       return;
     }
 
     this.errorMessage.set(null);
-    this.rebuildSlotsFormArray(this.configureForm.controls.taskCount.value);
-    this.currentStep.set('review');
-  }
+    this.isGenerating.set(true);
 
-  onBack(): void {
-    if (this.currentStep() === 'review') {
-      this.errorMessage.set(null);
-      this.currentStep.set('configure');
-      return;
-    }
-
-    void this.router.navigate(['/tasks']);
-  }
-
-  onPreviewSample(): void {
-    if (this.isLoadingPreview() || this.isPreviewSampleDisabled()) {
-      return;
-    }
-
-    const prompt = this.configureForm.controls.prompt.value.trim();
-    if (!prompt) {
-      this.errorMessage.set('Prompt is required to preview a sample suggestion.');
-      return;
-    }
-
-    this.errorMessage.set(null);
-    this.isLoadingPreview.set(true);
+    const { prompt } = this.generateForm.getRawValue();
 
     this.taskSuggestionService
-      .getSuggestionPreview({ prompt })
+      .generateBatch({ prompt: prompt.trim() })
       .pipe(
-        finalize(() => this.isLoadingPreview.set(false)),
+        finalize(() => this.isGenerating.set(false)),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
         next: (response) => {
-          const firstSlot = this.slots.at(0);
-          if (!firstSlot) {
-            return;
-          }
-
-          firstSlot.patchValue({
-            title: response.title,
-            description: response.description ?? '',
-          });
+          this.previewJson.set(
+            JSON.stringify({ tasks: response.tasks }, null, 2),
+          );
+          this.hasPreview.set(true);
         },
         error: (error: HttpErrorResponse) => {
           this.errorMessage.set(
-            resolveHttpErrorMessage(
-              error,
-              'Failed to load suggestion preview.',
-            ),
+            resolveHttpErrorMessage(error, 'Failed to generate tasks.'),
           );
         },
       });
   }
 
-  onCreate(): void {
-    if (this.isSubmitting()) {
+  onRegenerate(): void {
+    this.onGenerate();
+  }
+
+  onSaveAll(): void {
+    if (this.isSubmitting() || !this.hasPreview()) {
       return;
     }
 
-    const validationError = this.validateBeforeCreate();
-    if (validationError) {
-      this.errorMessage.set(validationError);
+    const validationResult = this.validateJsonBeforeSave(this.previewJson());
+    if (typeof validationResult === 'string') {
+      this.errorMessage.set(validationResult);
       return;
     }
 
     this.errorMessage.set(null);
     this.isSubmitting.set(true);
 
-    const request = this.buildCreateRequest();
+    const request: TaskSuggestionCreateRequest = {
+      tasks: validationResult.tasks,
+    };
 
     this.taskSuggestionService
       .createFromSuggestions(request)
@@ -186,133 +129,64 @@ export class TaskSuggestionComponent {
       });
   }
 
-  isConfigureFieldInvalid(fieldName: keyof ConfigureFormControls): boolean {
-    const control = this.configureForm.controls[fieldName];
+  onBackToTasks(): void {
+    void this.router.navigate(['/tasks']);
+  }
+
+  onPreviewJsonInput(event: Event): void {
+    this.previewJson.set((event.target as HTMLTextAreaElement).value);
+  }
+
+  isGenerateFieldInvalid(fieldName: keyof GenerateFormControls): boolean {
+    const control = this.generateForm.controls[fieldName];
     return control.invalid && (control.dirty || control.touched);
   }
 
-  isPreviewSampleDisabled(): boolean {
-    const firstSlot = this.slots.at(0);
-    if (!firstSlot) {
-      return true;
+  private validateJsonBeforeSave(
+    jsonText: string,
+  ): { tasks: TaskSuggestionBatchItem[] } | string {
+    let parsed: unknown;
+
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch {
+      return 'Invalid JSON. Please fix the syntax before saving.';
     }
 
-    return firstSlot.controls.title.value.trim().length > 0;
-  }
-
-  slotLabel(index: number): string {
-    const slot = this.slots.at(index);
-    const hasTitle = (slot?.controls.title.value.trim().length ?? 0) > 0;
-    return hasTitle ? `Task ${index + 1} (manual)` : `Task ${index + 1} (AI)`;
-  }
-
-  private rebuildSlotsFormArray(taskCount: number): void {
-    const existingValues = this.slots.controls.map((group) => group.getRawValue());
-
-    this.slots.clear();
-
-    for (let index = 0; index < taskCount; index++) {
-      const preserved = existingValues[index];
-      this.slots.push(this.createSlotGroup(preserved));
-    }
-  }
-
-  private createSlotGroup(
-    value?: Partial<SlotFormValue>,
-  ): FormGroup<SlotFormControls> {
-    return this.formBuilder.nonNullable.group({
-      title: [value?.title ?? ''],
-      description: [value?.description ?? ''],
-      dueDate: [value?.dueDate ?? ''],
-    });
-  }
-
-  private validateBeforeCreate(): string | null {
-    const taskCount = this.configureForm.controls.taskCount.value;
-
-    if (taskCount < 1 || taskCount > TASK_SUGGESTION_MAX_BATCH_SIZE) {
-      return `Task count must be between 1 and ${TASK_SUGGESTION_MAX_BATCH_SIZE}.`;
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      !('tasks' in parsed)
+    ) {
+      return 'JSON must be an object with a "tasks" property.';
     }
 
-    if (this.slots.length > taskCount) {
-      return 'Too many task slots for the configured count.';
+    const tasks = (parsed as { tasks: unknown }).tasks;
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+      return '"tasks" must be a non-empty array.';
     }
 
-    const hasLlmSlot = this.slots.controls.some(
-      (slot) => slot.controls.title.value.trim().length === 0,
-    );
+    const normalized: TaskSuggestionBatchItem[] = [];
 
-    if (hasLlmSlot && !this.configureForm.controls.prompt.value.trim()) {
-      return 'Prompt is required when one or more tasks will be generated by AI.';
+    for (let index = 0; index < tasks.length; index++) {
+      const item = tasks[index];
+      if (!item || typeof item !== 'object') {
+        return `Task ${index + 1} must be an object.`;
+      }
+
+      const title = (item as { title?: unknown }).title;
+      if (typeof title !== 'string' || !title.trim()) {
+        return `Task ${index + 1} requires a non-empty title.`;
+      }
+
+      const description = (item as { description?: unknown }).description;
+      normalized.push({
+        title: title.trim(),
+        description:
+          typeof description === 'string' ? description.trim() : '',
+      });
     }
 
-    return null;
-  }
-
-  private buildCreateRequest(): TaskSuggestionCreateRequest {
-    const configureValue = this.configureForm.getRawValue();
-    const taskCount = configureValue.taskCount;
-    const prompt = configureValue.prompt.trim();
-    const globalDueDate = configureValue.dueDate.trim();
-
-    const request: TaskSuggestionCreateRequest = {
-      taskCount,
-      prompt: prompt || undefined,
-    };
-
-    if (globalDueDate) {
-      request.dueDate = new Date(globalDueDate).toISOString();
-    }
-
-    const tasks = this.mapSlotsToOverrides(taskCount);
-    const hasAnySlotOverride = tasks.some(
-      (override) => Object.keys(override).length > 0,
-    );
-
-    if (hasAnySlotOverride) {
-      request.tasks = tasks;
-    }
-
-    return request;
-  }
-
-  private mapSlotsToOverrides(taskCount: number): TaskSuggestionTaskOverride[] {
-    const overrides: TaskSuggestionTaskOverride[] = [];
-
-    for (let index = 0; index < taskCount; index++) {
-      const slot = this.slots.at(index);
-      const slotValue = slot?.getRawValue() ?? {
-        title: '',
-        description: '',
-        dueDate: '',
-      };
-
-      overrides.push(this.mapSlotToOverride(slotValue));
-    }
-
-    return overrides;
-  }
-
-  private mapSlotToOverride(
-    slot: SlotFormValue,
-  ): TaskSuggestionTaskOverride {
-    const override: TaskSuggestionTaskOverride = {};
-    const title = slot.title.trim();
-    const description = slot.description.trim();
-    const dueDate = slot.dueDate.trim();
-
-    if (title) {
-      override.title = title;
-    }
-
-    if (description) {
-      override.description = description;
-    }
-
-    if (dueDate) {
-      override.dueDate = new Date(dueDate).toISOString();
-    }
-
-    return override;
+    return { tasks: normalized };
   }
 }

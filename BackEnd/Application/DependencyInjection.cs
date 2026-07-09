@@ -19,6 +19,7 @@ public static class DependencyInjection
         services.AddScoped<ITaskService, TaskService>();
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
         services.AddScoped<ITaskSuggestionService, TaskSuggestionService>();
+        services.AddScoped<IChatService, ChatService>();
 
         return services;
     }

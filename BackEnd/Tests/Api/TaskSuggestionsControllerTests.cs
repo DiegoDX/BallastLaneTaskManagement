@@ -112,10 +112,10 @@ public sealed class TaskSuggestionsControllerTests
     {
         // Arrange
         var request = new TaskSuggestionCreateRequest(
-            "Plan onboarding for new developer",
-            TaskCount: 2,
-            DueDate: DateTime.UtcNow.AddDays(7),
-            Tasks: null);
+        [
+            new TaskSuggestionBatchItem("Onboarding task one", "Set up workstation"),
+            new TaskSuggestionBatchItem("Onboarding task two", "Meet the team")
+        ]);
 
         // Act
         var response = await _factory.HttpClient.PostAsJsonAsync(ApiRoutes.TaskSuggestionsCreate, request);
@@ -125,15 +125,11 @@ public sealed class TaskSuggestionsControllerTests
     }
 
     [Fact]
-    public async Task Post_suggestions_create_returns_bad_request_when_task_count_is_invalid()
+    public async Task Post_suggestions_create_returns_bad_request_when_tasks_is_empty()
     {
         // Arrange
         var authenticatedClient = await CreateRegisteredUserAsync();
-        var request = new TaskSuggestionCreateRequest(
-            "Plan sprint",
-            TaskCount: 0,
-            DueDate: null,
-            Tasks: null);
+        var request = new TaskSuggestionCreateRequest([]);
 
         // Act
         var (response, error) = await authenticatedClient
@@ -144,11 +140,11 @@ public sealed class TaskSuggestionsControllerTests
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         error.Should().NotBeNull();
-        error!.Message.Should().Be($"Task count must be between 1 and {TaskSuggestionLimits.MaxBatchSize}.");
+        error!.Message.Should().Be("Task suggestion batch must contain at least one task.");
     }
 
     [Fact]
-    public async Task Post_suggestions_create_returns_created_with_tasks_when_llm_client_succeeds()
+    public async Task Post_suggestions_create_returns_created_with_tasks_from_request()
     {
         // Arrange
         await using var factory = new TaskSuggestionsMockLlmFixture();
@@ -164,12 +160,11 @@ public sealed class TaskSuggestionsControllerTests
 
         factory.TrackUser(authenticatedClient.UserId);
 
-        var dueDate = DateTime.UtcNow.AddDays(10);
         var request = new TaskSuggestionCreateRequest(
-            "Plan onboarding for new developer",
-            TaskCount: 2,
-            dueDate,
-            Tasks: null);
+        [
+            new TaskSuggestionBatchItem("Onboarding task one", "Set up workstation"),
+            new TaskSuggestionBatchItem("Onboarding task two", "Meet the team")
+        ]);
 
         // Act
         var (response, body) = await authenticatedClient
@@ -185,7 +180,93 @@ public sealed class TaskSuggestionsControllerTests
             "Onboarding task one",
             "Onboarding task two");
         body.Should().OnlyContain(task => task.UserId == authenticatedClient.UserId);
-        body.Should().OnlyContain(task => task.DueDate == dueDate);
+        body.Should().OnlyContain(task => task.DueDate >= DateTime.UtcNow.Date);
+        body.Should().OnlyContain(task => task.DueDate <= DateTime.UtcNow.Date.AddDays(30));
+    }
+
+    [Fact]
+    public async Task Post_suggestions_generate_returns_unauthorized_without_token()
+    {
+        // Arrange
+        var request = new TaskSuggestionGenerateRequest("Plan onboarding for new developer");
+
+        // Act
+        var response = await _factory.HttpClient.PostAsJsonAsync(ApiRoutes.TaskSuggestionsGenerate, request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Post_suggestions_generate_returns_bad_request_when_prompt_is_empty()
+    {
+        // Arrange
+        var authenticatedClient = await CreateRegisteredUserAsync();
+        var request = new TaskSuggestionGenerateRequest("   ");
+
+        // Act
+        var (response, error) = await authenticatedClient
+            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.TaskSuggestionsGenerate, JsonContent.Create(request))
+            .ContinueWith(task => task.Result.ReadErrorAsync())
+            .Unwrap();
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        error.Should().NotBeNull();
+        error!.Message.Should().Be("Prompt is required.");
+    }
+
+    [Fact]
+    public async Task Post_suggestions_generate_returns_bad_gateway_when_llm_api_key_is_not_configured()
+    {
+        // Arrange
+        var authenticatedClient = await CreateRegisteredUserAsync();
+        var request = new TaskSuggestionGenerateRequest("Plan onboarding for new developer");
+
+        // Act
+        var (response, error) = await authenticatedClient
+            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.TaskSuggestionsGenerate, JsonContent.Create(request))
+            .ContinueWith(task => task.Result.ReadErrorAsync())
+            .Unwrap();
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadGateway);
+        error.Should().NotBeNull();
+        error!.Message.Should().Be("LLM API key is not configured.");
+    }
+
+    [Fact]
+    public async Task Post_suggestions_generate_returns_ok_with_wrapped_batch_response_when_llm_client_succeeds()
+    {
+        // Arrange
+        await using var factory = new TaskSuggestionsMockLlmFixture();
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+
+        var authenticatedClient = await ApiAuthHelper.RegisterAndLoginAsync(
+            client,
+            $"suggest_generate_user_{Guid.NewGuid():N}",
+            "password123");
+
+        factory.TrackUser(authenticatedClient.UserId);
+
+        var request = new TaskSuggestionGenerateRequest("Plan onboarding for new developer");
+
+        // Act
+        var (response, body) = await authenticatedClient
+            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.TaskSuggestionsGenerate, JsonContent.Create(request))
+            .ContinueWith(task => task.Result.ReadJsonAsync<TaskSuggestionBatchResponse>())
+            .Unwrap();
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        body.Should().NotBeNull();
+        body!.Tasks.Should().HaveCount(2);
+        body.Tasks.Should().Equal(
+            new TaskSuggestionBatchItem("Onboarding task one", "Set up workstation"),
+            new TaskSuggestionBatchItem("Onboarding task two", "Meet the team"));
     }
 
     private async Task<AuthenticatedApiClient> CreateRegisteredUserAsync()
@@ -292,7 +373,7 @@ public sealed class TaskSuggestionsControllerTests
             var systemMessage = request.Messages.FirstOrDefault(message => message.Role == LlmMessageRole.System)?.Content
                 ?? string.Empty;
 
-            if (systemMessage.Contains("return exactly", StringComparison.Ordinal))
+            if (systemMessage.Contains("\"tasks\":[{", StringComparison.Ordinal))
             {
                 const string batchContent = """
                     {

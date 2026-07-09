@@ -23,24 +23,56 @@ public sealed class LlmSettingsValidator : IValidateOptions<LlmSettings>
 
         var normalizedProvider = options.Provider.Trim();
 
-        if (!string.Equals(normalizedProvider, LlmSettings.OpenAiProvider, StringComparison.OrdinalIgnoreCase))
+        var isOpenAi = string.Equals(
+            normalizedProvider,
+            LlmSettings.OpenAiProvider,
+            StringComparison.OrdinalIgnoreCase);
+        var isOllama = string.Equals(
+            normalizedProvider,
+            LlmSettings.OllamaProvider,
+            StringComparison.OrdinalIgnoreCase);
+
+        if (!isOpenAi && !isOllama)
         {
             return ValidateOptionsResult.Fail(
-                $"Llm:Provider '{options.Provider}' is not supported. Supported providers: {LlmSettings.OpenAiProvider}.");
+                $"Llm:Provider '{options.Provider}' is not supported. Supported providers: {LlmSettings.OpenAiProvider}, {LlmSettings.OllamaProvider}.");
         }
 
         if (_environment.IsProduction())
         {
-            if (string.IsNullOrWhiteSpace(options.ApiKey))
+            if (isOpenAi)
             {
-                return ValidateOptionsResult.Fail(
-                    "Llm:ApiKey is required in Production when Provider is OpenAI.");
-            }
+                if (string.IsNullOrWhiteSpace(options.ApiKey))
+                {
+                    return ValidateOptionsResult.Fail(
+                        "Llm:ApiKey is required in Production when Provider is OpenAI.");
+                }
 
-            if (string.IsNullOrWhiteSpace(options.Model))
+                if (string.IsNullOrWhiteSpace(options.Model))
+                {
+                    return ValidateOptionsResult.Fail(
+                        "Llm:Model is required in Production when Provider is OpenAI.");
+                }
+            }
+            else
             {
-                return ValidateOptionsResult.Fail(
-                    "Llm:Model is required in Production when Provider is OpenAI.");
+                if (string.IsNullOrWhiteSpace(options.Model))
+                {
+                    return ValidateOptionsResult.Fail(
+                        "Llm:Model is required in Production when Provider is Ollama.");
+                }
+
+                if (string.IsNullOrWhiteSpace(options.BaseUrl))
+                {
+                    return ValidateOptionsResult.Fail(
+                        "Llm:BaseUrl is required in Production when Provider is Ollama.");
+                }
+
+                if (!Uri.TryCreate(options.BaseUrl.Trim(), UriKind.Absolute, out _))
+                {
+                    return ValidateOptionsResult.Fail(
+                        "Llm:BaseUrl must be a valid absolute URI when Provider is Ollama.");
+                }
             }
         }
 

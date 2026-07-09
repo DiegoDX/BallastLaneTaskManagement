@@ -13,4 +13,9 @@ public interface ITaskSuggestionService
         Guid userId,
         TaskSuggestionCreateRequest request,
         CancellationToken cancellationToken = default);
+
+    Task<TaskSuggestionBatchResponse> GenerateBatchAsync(
+        Guid userId,
+        TaskSuggestionGenerateRequest request,
+        CancellationToken cancellationToken = default);
 }

@@ -11,138 +11,93 @@
       </div>
     }
 
-    @if (currentStep() === 'configure') {
-      <form [formGroup]="configureForm" (ngSubmit)="onContinue()" novalidate>
-        <p class="step-indicator">Step 1 of 2 — Configure</p>
+    <section class="generate-section">
+      <h2 class="section-title">Generate</h2>
 
+      <form [formGroup]="generateForm" (ngSubmit)="onGenerate()" novalidate>
         <div class="form-field">
           <label for="prompt">Prompt</label>
           <textarea
             id="prompt"
             rows="4"
             formControlName="prompt"
-            placeholder="Describe the tasks you want to create, e.g. Plan onboarding for a new developer"
-            [class.invalid]="isConfigureFieldInvalid('prompt')"
+            placeholder="Describe the tasks you want to create, e.g. Create 5 tasks to plan onboarding for a new developer"
+            [class.invalid]="isGenerateFieldInvalid('prompt')"
           ></textarea>
 
-          @if (isConfigureFieldInvalid('prompt')) {
+          @if (isGenerateFieldInvalid('prompt')) {
             <span class="field-error">Prompt is required.</span>
           }
         </div>
 
-        <div class="form-field">
-          <label for="taskCount">Number of tasks</label>
-          <input
-            id="taskCount"
-            type="number"
-            formControlName="taskCount"
-            min="1"
-            [max]="maxBatchSize"
-            [class.invalid]="isConfigureFieldInvalid('taskCount')"
-          />
-
-          @if (isConfigureFieldInvalid('taskCount')) {
-            <span class="field-error">
-              Enter a number between 1 and {{ maxBatchSize }}.
-            </span>
-          }
-        </div>
-
-        <div class="form-field">
-          <label for="dueDate">Default due date (optional)</label>
-          <input id="dueDate" type="date" formControlName="dueDate" />
-          <span class="field-hint">
-            Applied to tasks without their own due date.
-          </span>
-        </div>
-
         <div class="form-actions">
-          <button type="submit" class="btn-primary">Continue</button>
-          <button type="button" class="btn-secondary" (click)="onBack()">
-            Cancel
+          <button
+            type="submit"
+            class="btn-primary"
+            [disabled]="isGenerating()"
+          >
+            @if (isGenerating()) {
+              Generating...
+            } @else {
+              Generate
+            }
           </button>
         </div>
       </form>
-    } @else {
-      <div class="review-step">
-        <p class="step-indicator">Step 2 of 2 — Review &amp; overrides</p>
+    </section>
 
-        <p class="review-summary">
-          Creating {{ configureForm.controls.taskCount.value }} task(s) from
-          your prompt. Leave a slot's title empty to let AI fill it on create.
+    @if (hasPreview()) {
+      <section class="preview-section">
+        <h2 class="section-title">Preview &amp; edit</h2>
+
+        <p class="preview-summary">
+          Review and edit the generated JSON below before saving.
         </p>
 
-        <form [formGroup]="slotsForm" novalidate>
-          <div formArrayName="slots" class="slots-list">
-            @for (slot of slots.controls; track $index; let i = $index) {
-              <div class="slot-card" [formGroupName]="i">
-                <h2 class="slot-title">{{ slotLabel(i) }}</h2>
+        <div class="form-field">
+          <label for="previewJson">Tasks JSON</label>
+          <textarea
+            id="previewJson"
+            class="json-editor"
+            rows="16"
+            spellcheck="false"
+            [value]="previewJson()"
+            (input)="onPreviewJsonInput($event)"
+          ></textarea>
+        </div>
 
-                <div class="form-field">
-                  <label [for]="'slot-title-' + i">Title</label>
-                  <input
-                    [id]="'slot-title-' + i"
-                    type="text"
-                    formControlName="title"
-                    placeholder="Leave empty for AI-generated title"
-                  />
-                </div>
-
-                <div class="form-field">
-                  <label [for]="'slot-description-' + i">Description</label>
-                  <textarea
-                    [id]="'slot-description-' + i"
-                    rows="3"
-                    formControlName="description"
-                    placeholder="Optional description"
-                  ></textarea>
-                </div>
-
-                <div class="form-field">
-                  <label [for]="'slot-dueDate-' + i">Due date (optional)</label>
-                  <input
-                    [id]="'slot-dueDate-' + i"
-                    type="date"
-                    formControlName="dueDate"
-                  />
-                </div>
-              </div>
-            }
-          </div>
-        </form>
-
-        <div class="form-actions review-actions">
-          <button
-            type="button"
-            class="btn-secondary"
-            (click)="onPreviewSample()"
-            [disabled]="isLoadingPreview() || isPreviewSampleDisabled()"
-          >
-            @if (isLoadingPreview()) {
-              Loading preview...
-            } @else {
-              Preview sample
-            }
-          </button>
-
+        <div class="form-actions preview-actions">
           <button
             type="button"
             class="btn-primary"
-            (click)="onCreate()"
+            (click)="onSaveAll()"
             [disabled]="isSubmitting()"
           >
             @if (isSubmitting()) {
-              Creating...
+              Saving...
             } @else {
-              Create {{ configureForm.controls.taskCount.value }} tasks
+              Save All
             }
           </button>
 
-          <button type="button" class="btn-secondary" (click)="onBack()">
-            Back
+          <button
+            type="button"
+            class="btn-secondary"
+            (click)="onRegenerate()"
+            [disabled]="isGenerating()"
+          >
+            @if (isGenerating()) {
+              Regenerating...
+            } @else {
+              Regenerate
+            }
+          </button>
+
+          <button type="button" class="btn-secondary" (click)="onBackToTasks()">
+            Back to tasks
           </button>
         </div>
-      </div>
+      </section>
     }
   </div>
 </section>

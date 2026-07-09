@@ -21,13 +21,13 @@ public static class TaskSuggestionPromptBuilder
         return new LlmChatRequest(messages, Temperature: DefaultTemperature);
     }
 
-    public static LlmChatRequest BuildBatchChatRequest(string prompt, int count)
+    public static LlmChatRequest BuildBatchChatRequest(string prompt)
     {
         ArgumentNullException.ThrowIfNull(prompt);
 
         var messages = new List<LlmMessage>
         {
-            new(LlmMessageRole.System, BuildBatchSystemMessage(count)),
+            new(LlmMessageRole.System, BuildBatchSystemMessage()),
             new(LlmMessageRole.User, prompt.Trim())
         };
 
@@ -52,7 +52,7 @@ public static class TaskSuggestionPromptBuilder
             """;
     }
 
-    private static string BuildBatchSystemMessage(int count)
+    private static string BuildBatchSystemMessage()
     {
         return
             """
@@ -63,7 +63,8 @@ public static class TaskSuggestionPromptBuilder
 
             Rules:
             """ +
-            $"- return exactly {count} tasks in the tasks array\n" +
+            $"- return between 1 and {TaskSuggestionLimits.MaxBatchSize} tasks in the tasks array\n" +
+            "- infer how many tasks to create from the user's request (for example, when they ask for five tasks)\n" +
             $"- each title must be non-empty and at most {TaskTitle.MaxLength} characters\n" +
             """
             - each description may be an empty string when no extra detail is needed

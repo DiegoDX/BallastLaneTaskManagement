@@ -13,16 +13,11 @@ public static class TaskSuggestionBatchResponseParser
         PropertyNameCaseInsensitive = true
     };
 
-    public static IReadOnlyList<TaskSuggestionBatchItem> Parse(string content, int expectedCount)
+    public static IReadOnlyList<TaskSuggestionBatchItem> Parse(string content)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
             throw new ValidationException("Task suggestion response was empty.");
-        }
-
-        if (expectedCount <= 0)
-        {
-            throw new ValidationException("Expected task count must be greater than zero.");
         }
 
         var payload = DeserializePayload(content.Trim());
@@ -32,13 +27,13 @@ public static class TaskSuggestionBatchResponseParser
             throw new ValidationException("Task suggestion batch must contain at least one task.");
         }
 
-        if (payload.Tasks.Count != expectedCount)
+        if (payload.Tasks.Count > TaskSuggestionLimits.MaxBatchSize)
         {
             throw new ValidationException(
-                $"Task suggestion batch must contain exactly {expectedCount} tasks.");
+                $"Task suggestion batch must contain at most {TaskSuggestionLimits.MaxBatchSize} tasks.");
         }
 
-        var items = new List<TaskSuggestionBatchItem>(expectedCount);
+        var items = new List<TaskSuggestionBatchItem>(payload.Tasks.Count);
 
         for (var index = 0; index < payload.Tasks.Count; index++)
         {
