@@ -146,6 +146,123 @@ public sealed class OllamaLlmClientTests
     }
 
     [Fact]
+    public async Task CompleteChatWithToolsAsync_maps_request_payload_with_tools()
+    {
+        // Arrange
+        HttpRequestMessage? capturedRequest = null;
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            capturedRequest = request;
+            return SuccessResponse(
+                """
+                {
+                  "model": "llama3.2",
+                  "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "name": "create_task",
+                          "arguments": {
+                            "title": "Buy milk",
+                            "dueDate": "2026-07-10"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+                """);
+        });
+
+        var client = CreateClient(handler);
+        var chatRequest = new LlmChatRequest([new LlmMessage(LlmMessageRole.User, "Create a task")]);
+        var tools =
+            new List<LlmToolDefinition>
+            {
+                new(
+                    "create_task",
+                    "Creates a task.",
+                    """
+                    {
+                      "type": "object",
+                      "properties": {
+                        "title": { "type": "string" },
+                        "dueDate": { "type": "string" }
+                      },
+                      "required": ["title", "dueDate"]
+                    }
+                    """)
+            };
+
+        // Act
+        var response = await client.CompleteChatWithToolsAsync(chatRequest, tools);
+
+        // Assert
+        capturedRequest.Should().NotBeNull();
+        var body = await capturedRequest!.Content!.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+
+        root.TryGetProperty("tools", out var toolsElement).Should().BeTrue();
+        toolsElement.GetArrayLength().Should().Be(1);
+        toolsElement[0].GetProperty("type").GetString().Should().Be("function");
+        toolsElement[0].GetProperty("function").GetProperty("name").GetString().Should().Be("create_task");
+
+        response.ToolCalls.Should().HaveCount(1);
+        response.ToolCalls[0].Name.Should().Be("create_task");
+        response.ToolCalls[0].Id.Should().Be("call_0_create_task");
+        response.ToolCalls[0].Arguments.Should().Contain("Buy milk");
+    }
+
+    [Fact]
+    public async Task CompleteChatWithToolsAsync_retries_on_transient_503()
+    {
+        // Arrange
+        var attempts = 0;
+        var handler = new StubHttpMessageHandler(_ =>
+        {
+            attempts++;
+
+            if (attempts == 1)
+            {
+                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            }
+
+            return SuccessResponse(
+                """
+                {
+                  "model": "llama3.2",
+                  "message": { "role": "assistant", "content": "done" }
+                }
+                """);
+        });
+
+        var client = CreateClient(handler, new LlmSettings
+        {
+            Provider = LlmSettings.OllamaProvider,
+            Model = "llama3.2",
+            BaseUrl = "http://localhost:11434",
+            TimeoutSeconds = 60,
+            MaxRetryAttempts = 2
+        });
+
+        var chatRequest = new LlmChatRequest([new LlmMessage(LlmMessageRole.User, "hi")]);
+        var tools = new List<LlmToolDefinition>
+        {
+            new("create_task", "Creates a task.", """{"type":"object","properties":{}}""")
+        };
+
+        // Act
+        var response = await client.CompleteChatWithToolsAsync(chatRequest, tools);
+
+        // Assert
+        attempts.Should().Be(2);
+        response.Content.Should().Be("done");
+    }
+
+    [Fact]
     public async Task CompleteChatAsync_throws_non_transient_exception_on_404()
     {
         // Arrange

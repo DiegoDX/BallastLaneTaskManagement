@@ -1,7 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
-using Application.DTOs.Chat;
 using Application.DTOs.Llm;
+using Application.DTOs.TaskAssistant;
+using Application.Exceptions;
 using Application.Interfaces;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
@@ -15,76 +16,76 @@ namespace Tests.Api;
 
 [Collection("ApiIntegration")]
 [Trait("Category", "ApiIntegration")]
-public sealed class ChatControllerTests
+public sealed class TaskAssistantControllerTests
 {
     private readonly ApiIntegrationFixture _factory;
 
-    public ChatControllerTests(ApiIntegrationFixture factory)
+    public TaskAssistantControllerTests(ApiIntegrationFixture factory)
     {
         _factory = factory;
     }
 
     [Fact]
-    public async Task Post_chat_returns_unauthorized_without_token()
+    public async Task Post_task_assistant_returns_unauthorized_without_token()
     {
         // Arrange
-        var request = new ChatRequest([new ChatMessageDto("user", "Hello")]);
+        var request = new TaskAssistantRequest([new TaskAssistantMessageDto("user", "Create a task for tomorrow")]);
 
         // Act
-        var response = await _factory.HttpClient.PostAsJsonAsync(ApiRoutes.Chat, request);
+        var response = await _factory.HttpClient.PostAsJsonAsync(ApiRoutes.TaskAssistant, request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
-    public async Task Post_chat_returns_bad_request_when_messages_are_empty()
+    public async Task Post_task_assistant_returns_bad_request_when_messages_are_empty()
     {
         // Arrange
         var authenticatedClient = await CreateRegisteredUserAsync();
-        var request = new ChatRequest([]);
+        var request = new TaskAssistantRequest([]);
 
         // Act
         var (response, error) = await authenticatedClient
-            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.Chat, JsonContent.Create(request))
+            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.TaskAssistant, JsonContent.Create(request))
             .ContinueWith(task => task.Result.ReadErrorAsync())
             .Unwrap();
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         error.Should().NotBeNull();
-        error!.Message.Should().Be("At least one chat message is required.");
+        error!.Message.Should().Be("At least one message is required.");
     }
 
     [Fact]
-    public async Task Post_chat_returns_bad_request_when_message_content_is_empty()
+    public async Task Post_task_assistant_returns_bad_request_when_message_role_is_invalid()
     {
         // Arrange
         var authenticatedClient = await CreateRegisteredUserAsync();
-        var request = new ChatRequest([new ChatMessageDto("user", "   ")]);
+        var request = new TaskAssistantRequest([new TaskAssistantMessageDto("system", "Create a task")]);
 
         // Act
         var (response, error) = await authenticatedClient
-            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.Chat, JsonContent.Create(request))
+            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.TaskAssistant, JsonContent.Create(request))
             .ContinueWith(task => task.Result.ReadErrorAsync())
             .Unwrap();
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         error.Should().NotBeNull();
-        error!.Message.Should().Be("Message content is required.");
+        error!.Message.Should().Be("Message role must be 'user' or 'assistant'.");
     }
 
     [Fact]
-    public async Task Post_chat_returns_bad_gateway_when_llm_api_key_is_not_configured()
+    public async Task Post_task_assistant_returns_bad_gateway_when_llm_api_key_is_not_configured()
     {
         // Arrange
         var authenticatedClient = await CreateRegisteredUserAsync();
-        var request = new ChatRequest([new ChatMessageDto("user", "Hello")]);
+        var request = new TaskAssistantRequest([new TaskAssistantMessageDto("user", "Create a task for tomorrow")]);
 
         // Act
         var (response, error) = await authenticatedClient
-            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.Chat, JsonContent.Create(request))
+            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.TaskAssistant, JsonContent.Create(request))
             .ContinueWith(task => task.Result.ReadErrorAsync())
             .Unwrap();
 
@@ -95,10 +96,10 @@ public sealed class ChatControllerTests
     }
 
     [Fact]
-    public async Task Post_chat_returns_ok_with_assistant_response_when_llm_client_succeeds()
+    public async Task Post_task_assistant_returns_service_unavailable_when_llm_is_transiently_unavailable()
     {
         // Arrange
-        await using var factory = new ChatMockLlmFixture();
+        await using var factory = new TaskAssistantMockLlmFixture(new TransientFailureLlmClient());
         var client = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false
@@ -106,29 +107,64 @@ public sealed class ChatControllerTests
 
         var authenticatedClient = await ApiAuthHelper.RegisterAndLoginAsync(
             client,
-            $"chat_user_{Guid.NewGuid():N}",
+            $"task_assistant_user_{Guid.NewGuid():N}",
             "password123");
 
         factory.TrackUser(authenticatedClient.UserId);
 
-        var request = new ChatRequest([new ChatMessageDto("user", "Hello, how are you?")]);
+        var request = new TaskAssistantRequest([new TaskAssistantMessageDto("user", "Create a task for tomorrow")]);
+
+        // Act
+        var (response, error) = await authenticatedClient
+            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.TaskAssistant, JsonContent.Create(request))
+            .ContinueWith(task => task.Result.ReadErrorAsync())
+            .Unwrap();
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        error.Should().NotBeNull();
+        error!.Message.Should().Be("The LLM service is temporarily unavailable.");
+    }
+
+    [Fact]
+    public async Task Post_task_assistant_returns_ok_with_assistant_response_when_llm_client_succeeds()
+    {
+        // Arrange
+        await using var factory = new TaskAssistantMockLlmFixture(new SuccessLlmClient());
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+
+        var authenticatedClient = await ApiAuthHelper.RegisterAndLoginAsync(
+            client,
+            $"task_assistant_user_{Guid.NewGuid():N}",
+            "password123");
+
+        factory.TrackUser(authenticatedClient.UserId);
+
+        var request = new TaskAssistantRequest(
+        [
+            new TaskAssistantMessageDto("user", "Create a task 'Buy milk' due tomorrow")
+        ]);
 
         // Act
         var (response, body) = await authenticatedClient
-            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.Chat, JsonContent.Create(request))
-            .ContinueWith(task => task.Result.ReadJsonAsync<ChatResponse>())
+            .SendAuthorizedAsync(HttpMethod.Post, ApiRoutes.TaskAssistant, JsonContent.Create(request))
+            .ContinueWith(task => task.Result.ReadJsonAsync<TaskAssistantResponse>())
             .Unwrap();
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         body.Should().NotBeNull();
-        body!.Content.Should().Be("Hello! How can I help you today?");
+        body!.Content.Should().Be("I can help you manage your tasks. What would you like to do?");
         body.Model.Should().Be("gpt-4o-mini");
+        body.Actions.Should().BeEmpty();
     }
 
     private async Task<AuthenticatedApiClient> CreateRegisteredUserAsync()
     {
-        var username = $"chat_user_{Guid.NewGuid():N}";
+        var username = $"task_assistant_user_{Guid.NewGuid():N}";
         var authenticatedClient = await ApiAuthHelper.RegisterAndLoginAsync(
             _factory.HttpClient,
             username,
@@ -138,9 +174,15 @@ public sealed class ChatControllerTests
         return authenticatedClient;
     }
 
-    private sealed class ChatMockLlmFixture : WebApplicationFactory<Program>, IAsyncLifetime
+    private sealed class TaskAssistantMockLlmFixture : WebApplicationFactory<Program>, IAsyncLifetime
     {
+        private readonly ILlmClient _llmClient;
         private readonly List<Guid> _createdUserIds = [];
+
+        public TaskAssistantMockLlmFixture(ILlmClient llmClient)
+        {
+            _llmClient = llmClient;
+        }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -155,7 +197,7 @@ public sealed class ChatControllerTests
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<ILlmClient>();
-                services.AddSingleton<ILlmClient, StubLlmClient>();
+                services.AddSingleton(_llmClient);
             });
         }
 
@@ -221,19 +263,34 @@ public sealed class ChatControllerTests
         }
     }
 
-    private sealed class StubLlmClient : ILlmClient
+    private sealed class SuccessLlmClient : ILlmClient
     {
         public Task<LlmChatResponse> CompleteChatAsync(
             LlmChatRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(new LlmChatResponse("Hello! How can I help you today?", "gpt-4o-mini"));
-        }
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new LlmChatResponse(string.Empty, "gpt-4o-mini"));
 
         public Task<LlmChatCompletion> CompleteChatWithToolsAsync(
             LlmChatRequest request,
             IReadOnlyList<LlmToolDefinition> tools,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(new LlmChatCompletion(string.Empty, [], "gpt-4o-mini"));
+            Task.FromResult(new LlmChatCompletion(
+                "I can help you manage your tasks. What would you like to do?",
+                [],
+                "gpt-4o-mini"));
+    }
+
+    private sealed class TransientFailureLlmClient : ILlmClient
+    {
+        public Task<LlmChatResponse> CompleteChatAsync(
+            LlmChatRequest request,
+            CancellationToken cancellationToken = default) =>
+            throw new LlmException("LLM request timed out.", isTransient: true);
+
+        public Task<LlmChatCompletion> CompleteChatWithToolsAsync(
+            LlmChatRequest request,
+            IReadOnlyList<LlmToolDefinition> tools,
+            CancellationToken cancellationToken = default) =>
+            throw new LlmException("LLM request timed out.", isTransient: true);
     }
 }

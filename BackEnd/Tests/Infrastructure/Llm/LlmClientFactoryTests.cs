@@ -113,6 +113,51 @@ public sealed class LlmClientFactoryTests
         act.Should().NotThrow();
     }
 
+    [Fact]
+    public async Task CompleteChatWithToolsAsync_delegates_to_ollama_client_when_provider_is_ollama()
+    {
+        // Arrange
+        var openAiClient = CreateOpenAiClient();
+        var ollamaClient = CreateOllamaClient(new StubHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """
+                    {
+                      "model": "llama3.2",
+                      "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                          {
+                            "function": {
+                              "name": "create_task",
+                              "arguments": { "title": "Test" }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                    """,
+                    Encoding.UTF8,
+                    "application/json")
+            }));
+        var settings = Options.Create(new LlmSettings { Provider = LlmSettings.OllamaProvider });
+        var factory = new LlmClientFactory(settings, openAiClient, ollamaClient);
+        var request = new LlmChatRequest([new LlmMessage(LlmMessageRole.User, "create task")]);
+        var tools = new List<LlmToolDefinition>
+        {
+            new("create_task", "Creates a task.", """{"type":"object","properties":{}}""")
+        };
+
+        // Act
+        var response = await factory.CompleteChatWithToolsAsync(request, tools);
+
+        // Assert
+        response.ToolCalls.Should().HaveCount(1);
+        response.ToolCalls[0].Name.Should().Be("create_task");
+    }
+
     private static OpenAiLlmClient CreateOpenAiClient() =>
         new(Options.Create(new LlmSettings()), NullLogger<OpenAiLlmClient>.Instance);
 

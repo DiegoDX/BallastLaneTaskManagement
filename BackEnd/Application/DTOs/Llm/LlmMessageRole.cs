@@ -4,5 +4,6 @@ public enum LlmMessageRole
 {
     System,
     User,
-    Assistant
+    Assistant,
+    Tool
 }

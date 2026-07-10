@@ -31,4 +31,10 @@ public sealed class LlmClientFactory : ILlmClient
         LlmChatRequest request,
         CancellationToken cancellationToken = default) =>
         _inner.CompleteChatAsync(request, cancellationToken);
+
+    public Task<LlmChatCompletion> CompleteChatWithToolsAsync(
+        LlmChatRequest request,
+        IReadOnlyList<LlmToolDefinition> tools,
+        CancellationToken cancellationToken = default) =>
+        _inner.CompleteChatWithToolsAsync(request, tools, cancellationToken);
 }

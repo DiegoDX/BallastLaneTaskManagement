@@ -123,6 +123,10 @@ export class TaskListComponent implements OnInit {
     void this.router.navigate(['/chat']);
   }
 
+  navigateToTaskAssistant(): void {
+    void this.router.navigate(['/task-assistant']);
+  }
+
   navigateToEdit(taskId: string): void {
     void this.router.navigate(['/tasks/edit', taskId]);
   }

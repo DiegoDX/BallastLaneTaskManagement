@@ -127,6 +127,117 @@ public sealed class OpenAiLlmClient : ILlmClient
             isTransient: true);
     }
 
+    public async Task<LlmChatCompletion> CompleteChatWithToolsAsync(
+        LlmChatRequest request,
+        IReadOnlyList<LlmToolDefinition> tools,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(tools);
+
+        if (tools.Count == 0)
+        {
+            throw new LlmException("At least one tool is required.", isTransient: false);
+        }
+
+        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+        {
+            throw new LlmException("LLM API key is not configured.", isTransient: false);
+        }
+
+        var messages = OpenAiChatMessageMapper.ToOpenAiMessagesWithTools(request.Messages);
+        var options = OpenAiChatCompletionOptionsMapper.ToOpenAiOptionsWithTools(request, tools);
+        var model = ResolveModel(request);
+        var chatClient = _openAiClient.GetChatClient(model);
+        var maxAttempts = _settings.MaxRetryAttempts + 1;
+        var stopwatch = Stopwatch.StartNew();
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(_settings.TimeoutSeconds);
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            var remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                stopwatch.Stop();
+                throw new LlmException(
+                    "LLM request timed out before a response was received.",
+                    isTransient: true);
+            }
+
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            attemptCts.CancelAfter(remaining);
+
+            try
+            {
+                _logger.LogDebug(
+                    "Sending OpenAI chat completion request with tools. Attempt={Attempt}, MaxAttempts={MaxAttempts}, Model={Model}, ToolCount={ToolCount}, RemainingTimeoutMs={RemainingTimeoutMs}",
+                    attempt,
+                    maxAttempts,
+                    model,
+                    tools.Count,
+                    (int)remaining.TotalMilliseconds);
+
+                var completion = await chatClient.CompleteChatAsync(
+                    messages,
+                    options,
+                    attemptCts.Token);
+
+                stopwatch.Stop();
+
+                var response = OpenAiChatCompletionMapper.ToLlmChatCompletion(completion, model);
+
+                _logger.LogInformation(
+                    "OpenAI chat completion with tools succeeded. Provider={Provider}, Model={Model}, ToolCallCount={ToolCallCount}, LatencyMs={LatencyMs}",
+                    LlmSettings.OpenAiProvider,
+                    response.Model,
+                    response.ToolCalls.Count,
+                    stopwatch.ElapsedMilliseconds);
+
+                _logger.LogDebug(
+                    "OpenAI chat completion with tools response received. ContentLength={ContentLength}, ToolCallCount={ToolCallCount}",
+                    response.Content.Length,
+                    response.ToolCalls.Count);
+
+                return response;
+            }
+            catch (Exception ex) when (IsTransientFailure(ex, cancellationToken) && attempt < maxAttempts)
+            {
+                var delay = TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt - 1));
+
+                _logger.LogWarning(
+                    ex,
+                    "Transient OpenAI chat completion with tools failure. Attempt={Attempt}, MaxAttempts={MaxAttempts}, RetryDelayMs={RetryDelayMs}",
+                    attempt,
+                    maxAttempts,
+                    delay.TotalMilliseconds);
+
+                await Task.Delay(delay, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                var isTransient = IsTransientFailure(ex, cancellationToken);
+
+                _logger.LogError(
+                    ex,
+                    "OpenAI chat completion with tools failed. Attempt={Attempt}, MaxAttempts={MaxAttempts}, Transient={IsTransient}, LatencyMs={LatencyMs}",
+                    attempt,
+                    maxAttempts,
+                    isTransient,
+                    stopwatch.ElapsedMilliseconds);
+
+                throw new LlmException(
+                    "Failed to complete chat with the LLM provider.",
+                    ex,
+                    isTransient);
+            }
+        }
+
+        throw new LlmException(
+            "Failed to complete chat with the LLM provider.",
+            isTransient: true);
+    }
+
     private string ResolveModel(LlmChatRequest request)
     {
         if (!string.IsNullOrWhiteSpace(request.Model))

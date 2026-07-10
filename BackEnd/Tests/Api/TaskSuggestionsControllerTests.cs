@@ -393,5 +393,11 @@ public sealed class TaskSuggestionsControllerTests
 
             return Task.FromResult(new LlmChatResponse(content, "gpt-4o-mini"));
         }
+
+        public Task<LlmChatCompletion> CompleteChatWithToolsAsync(
+            LlmChatRequest request,
+            IReadOnlyList<LlmToolDefinition> tools,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new LlmChatCompletion(string.Empty, [], "gpt-4o-mini"));
     }
 }

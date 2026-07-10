@@ -14,4 +14,7 @@ export const API_PATHS = {
   chat: {
     base: '/chat',
   },
+  taskAssistant: {
+    base: '/task-assistant',
+  },
 } as const;

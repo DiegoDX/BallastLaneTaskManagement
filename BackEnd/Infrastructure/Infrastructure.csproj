@@ -29,4 +29,8 @@
     <EmbeddedResource Include="Persistence\Scripts\seed.sql" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tests" />
+  </ItemGroup>
+
 </Project>

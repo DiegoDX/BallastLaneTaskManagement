@@ -32,6 +32,14 @@ export const routes: Routes = [
       import('./features/chat/chat.component').then((m) => m.ChatComponent),
   },
   {
+    path: 'task-assistant',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/task-assistant/task-assistant.component').then(
+        (m) => m.TaskAssistantComponent,
+      ),
+  },
+  {
     path: '**',
     redirectTo: 'login',
   },

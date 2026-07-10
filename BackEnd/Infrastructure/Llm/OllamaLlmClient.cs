@@ -184,6 +184,162 @@ public sealed class OllamaLlmClient : ILlmClient
             isTransient: true);
     }
 
+    public async Task<LlmChatCompletion> CompleteChatWithToolsAsync(
+        LlmChatRequest request,
+        IReadOnlyList<LlmToolDefinition> tools,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(tools);
+
+        if (tools.Count == 0)
+        {
+            throw new LlmException("At least one tool is required.", isTransient: false);
+        }
+
+        var model = ResolveModel(request);
+        var ollamaRequest = OllamaChatRequestMapper.ToOllamaRequestWithTools(request, model, tools);
+        var chatEndpoint = BuildChatEndpoint();
+        var maxAttempts = _settings.MaxRetryAttempts + 1;
+        var stopwatch = Stopwatch.StartNew();
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(_settings.TimeoutSeconds);
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            var remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                stopwatch.Stop();
+                throw new LlmException(
+                    "LLM request timed out before a response was received.",
+                    isTransient: true);
+            }
+
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            attemptCts.CancelAfter(remaining);
+
+            try
+            {
+                _logger.LogDebug(
+                    "Sending Ollama chat completion request with tools. Attempt={Attempt}, MaxAttempts={MaxAttempts}, Model={Model}, ToolCount={ToolCount}, RemainingTimeoutMs={RemainingTimeoutMs}",
+                    attempt,
+                    maxAttempts,
+                    model,
+                    tools.Count,
+                    (int)remaining.TotalMilliseconds);
+
+                using var httpResponse = await _httpClient.PostAsJsonAsync(
+                    chatEndpoint,
+                    ollamaRequest,
+                    JsonOptions,
+                    attemptCts.Token);
+
+                if (!httpResponse.IsSuccessStatusCode)
+                {
+                    var isTransient = IsTransientStatusCode(httpResponse.StatusCode);
+
+                    if (isTransient && attempt < maxAttempts)
+                    {
+                        var delay = TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt - 1));
+
+                        _logger.LogWarning(
+                            "Transient Ollama chat completion with tools failure. Attempt={Attempt}, MaxAttempts={MaxAttempts}, StatusCode={StatusCode}, RetryDelayMs={RetryDelayMs}",
+                            attempt,
+                            maxAttempts,
+                            (int)httpResponse.StatusCode,
+                            delay.TotalMilliseconds);
+
+                        await Task.Delay(delay, cancellationToken);
+                        continue;
+                    }
+
+                    stopwatch.Stop();
+
+                    _logger.LogError(
+                        "Ollama chat completion with tools failed. Attempt={Attempt}, MaxAttempts={MaxAttempts}, StatusCode={StatusCode}, Transient={IsTransient}, LatencyMs={LatencyMs}",
+                        attempt,
+                        maxAttempts,
+                        (int)httpResponse.StatusCode,
+                        isTransient,
+                        stopwatch.ElapsedMilliseconds);
+
+                    throw new LlmException(
+                        "Failed to complete chat with the LLM provider.",
+                        isTransient);
+                }
+
+                var ollamaResponse = await httpResponse.Content.ReadFromJsonAsync<OllamaChatResponseDto>(
+                    JsonOptions,
+                    attemptCts.Token);
+
+                if (ollamaResponse is null)
+                {
+                    stopwatch.Stop();
+                    throw new LlmException(
+                        "Failed to complete chat with the LLM provider.",
+                        isTransient: false);
+                }
+
+                stopwatch.Stop();
+
+                var response = OllamaChatResponseMapper.ToLlmChatCompletion(ollamaResponse, model);
+
+                _logger.LogInformation(
+                    "Ollama chat completion with tools succeeded. Provider={Provider}, Model={Model}, ToolCallCount={ToolCallCount}, LatencyMs={LatencyMs}",
+                    LlmSettings.OllamaProvider,
+                    response.Model,
+                    response.ToolCalls.Count,
+                    stopwatch.ElapsedMilliseconds);
+
+                _logger.LogDebug(
+                    "Ollama chat completion with tools response received. ContentLength={ContentLength}, ToolCallCount={ToolCallCount}",
+                    response.Content.Length,
+                    response.ToolCalls.Count);
+
+                return response;
+            }
+            catch (Exception ex) when (IsTransientFailure(ex, cancellationToken) && attempt < maxAttempts)
+            {
+                var delay = TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt - 1));
+
+                _logger.LogWarning(
+                    ex,
+                    "Transient Ollama chat completion with tools failure. Attempt={Attempt}, MaxAttempts={MaxAttempts}, RetryDelayMs={RetryDelayMs}",
+                    attempt,
+                    maxAttempts,
+                    delay.TotalMilliseconds);
+
+                await Task.Delay(delay, cancellationToken);
+            }
+            catch (LlmException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                var isTransient = IsTransientFailure(ex, cancellationToken);
+
+                _logger.LogError(
+                    ex,
+                    "Ollama chat completion with tools failed. Attempt={Attempt}, MaxAttempts={MaxAttempts}, Transient={IsTransient}, LatencyMs={LatencyMs}",
+                    attempt,
+                    maxAttempts,
+                    isTransient,
+                    stopwatch.ElapsedMilliseconds);
+
+                throw new LlmException(
+                    "Failed to complete chat with the LLM provider.",
+                    ex,
+                    isTransient);
+            }
+        }
+
+        throw new LlmException(
+            "Failed to complete chat with the LLM provider.",
+            isTransient: true);
+    }
+
     private string ResolveModel(LlmChatRequest request)
     {
         if (!string.IsNullOrWhiteSpace(request.Model))

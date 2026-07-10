@@ -13,3 +13,7 @@ export * from './task-suggestion-batch-response.model';
 export * from './chat-message.model';
 export * from './chat-request.model';
 export * from './chat-response.model';
+export * from './task-assistant-message.model';
+export * from './task-assistant-action.model';
+export * from './task-assistant-request.model';
+export * from './task-assistant-response.model';

@@ -19,4 +19,22 @@ internal static class OpenAiChatCompletionOptionsMapper
             MaxOutputTokenCount = request.MaxOutputTokens.Value
         };
     }
+
+    internal static ChatCompletionOptions ToOpenAiOptionsWithTools(
+        LlmChatRequest request,
+        IReadOnlyList<LlmToolDefinition> tools)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(tools);
+
+        var options = ToOpenAiOptions(request);
+        var openAiTools = OpenAiChatToolMapper.ToOpenAiTools(tools);
+
+        foreach (var tool in openAiTools)
+        {
+            options.Tools.Add(tool);
+        }
+
+        return options;
+    }
 }

@@ -1,4 +1,5 @@
 using Application.Interfaces.Services;
+using Application.Llm.TaskAssistant;
 using Application.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +21,8 @@ public static class DependencyInjection
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
         services.AddScoped<ITaskSuggestionService, TaskSuggestionService>();
         services.AddScoped<IChatService, ChatService>();
+        services.AddScoped<ITaskAssistantService, TaskAssistantService>();
+        services.AddScoped<ITaskToolExecutor, TaskToolExecutor>();
 
         return services;
     }
