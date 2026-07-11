@@ -1,7 +1,9 @@
 using Application.Agent;
 using Application.Interfaces;
+using Application.Interfaces.Mcp;
 using Application.Interfaces.Repositories;
 using Infrastructure.Agent;
+using Infrastructure.Mcp;
 using Infrastructure.Configuration;
 using Infrastructure.Data;
 using Infrastructure.Llm;
@@ -35,8 +37,17 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(AgentOptions.SectionName))
             .ValidateOnStart();
 
+        services.Configure<McpSettings>(configuration.GetSection(McpSettings.SectionName));
+
+        services
+            .AddOptions<McpSettings>()
+            .Bind(configuration.GetSection(McpSettings.SectionName))
+            .ValidateOnStart();
+
         services.AddSingleton<IValidateOptions<LlmSettings>, LlmSettingsValidator>();
         services.AddSingleton<IValidateOptions<AgentOptions>, AgentSettingsValidator>();
+        services.AddSingleton<IValidateOptions<McpSettings>, McpSettingsValidator>();
+        services.AddScoped<IMcpToolClient, McpStdioToolClient>();
         services.AddHttpClient<OllamaLlmClient>();
         services.AddHttpClient<OllamaEmbeddingClient>();
         services.AddSingleton<OpenAiLlmClient>();

@@ -22,7 +22,7 @@ public sealed class TaskToolExecutorTests
 
     public TaskToolExecutorTests()
     {
-        _sut = new TaskToolExecutor(_taskServiceMock.Object, TimeProvider);
+        _sut = new TaskToolExecutor(new TaskToolHandlers(_taskServiceMock.Object, TimeProvider));
     }
 
     [Fact]
@@ -240,12 +240,13 @@ public sealed class TaskToolExecutorTests
 
         var result = await _sut.ExecuteAsync(_userId, toolCall);
 
-        result.Action.Should().BeNull();
+        result.Action.Should().NotBeNull();
+        result.Action!.Type.Should().Be(TaskAssistantActionTypes.Listed);
 
         using var document = JsonDocument.Parse(result.ResultJson);
         document.RootElement.GetProperty("success").GetBoolean().Should().BeTrue();
-        document.RootElement.GetProperty("task").GetProperty("taskId").GetGuid().Should().Be(taskId);
-        document.RootElement.GetProperty("task").GetProperty("title").GetString().Should().Be("Buy milk");
+        document.RootElement.GetProperty("tasks")[0].GetProperty("taskId").GetGuid().Should().Be(taskId);
+        document.RootElement.GetProperty("tasks")[0].GetProperty("title").GetString().Should().Be("Buy milk");
     }
 
     [Fact]

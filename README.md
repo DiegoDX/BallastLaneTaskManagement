@@ -11,7 +11,9 @@ A **Task Assistant** (`/task-assistant`) lets authenticated users manage tasks i
 
 A **Doc Assistant** (`/doc-assistant`) answers questions about project documentation using RAG (Retrieval-Augmented Generation). On startup, the API indexes files from `BackEnd/Api/Documentation/`, embeds text chunks, and retrieves relevant context for each question before calling the LLM.
 
-An **Agent** (`/agent`) runs a multi-phase workflow (Plan → Approval → Execute → Review → Summary) to organize and manage tasks in natural language. The Execute phase uses tool-calling against the same task tools as Task Assistant.
+An **Agent** (`/agent`) runs a multi-phase workflow (Plan → Approval → Execute → Review → Summary) to organize and manage tasks in natural language. The Execute phase discovers and runs tools via the **TaskAssistant MCP Server** (stdio).
+
+A **TaskAssistant MCP Server** exposes 10 task-domain tools (`create_task`, `update_task`, `delete_task`, `search_tasks`, `complete_task`, plus analytics/planning tools) for Cursor and the Agent Execute phase.
 
 On startup (non-Testing environments), the API automatically creates the SQL Server database if needed, applies the schema, and runs seed data including a default admin account.
 
@@ -284,7 +286,7 @@ The Agent is available at **`/agent`** in the UI (link from the task list) or vi
 
 1. **Plan** — LLM produces a structured JSON plan
 2. **Approval** — pauses when the plan is destructive or high-risk
-3. **Execute** — agentic tool-calling loop (reuses task tools)
+3. **Execute** — agentic tool-calling loop via MCP (`IMcpToolClient`)
 4. **Review** — LLM evaluates execution against the plan
 5. **Summary** — user-facing summary with phase timeline
 
@@ -319,7 +321,7 @@ POST /api/v1/agent
   "executionReport": {
     "iterations": 3,
     "toolCalls": [
-      { "name": "list_tasks", "success": true },
+      { "name": "search_tasks", "success": true },
       { "name": "update_task", "success": true }
     ]
   },
@@ -366,4 +368,57 @@ ollama serve
 ```
 
 Plans that include `delete_task`, bulk updates above the threshold, or `riskLevel: high` require explicit user approval before execution.
+
+## TaskAssistant MCP Server
+
+The Agent Execute phase spawns a **stdio MCP server** that exposes task tools to the LLM. Task Assistant still calls `ITaskToolExecutor` directly in MVP; only the Agent uses MCP.
+
+### MCP tools
+
+| Tool | Purpose |
+|------|---------|
+| `create_task` | Create a task |
+| `update_task` | Update title, description, or status |
+| `delete_task` | Delete a task (requires Agent approval) |
+| `search_tasks` | Search by id, status, or title |
+| `complete_task` | Mark a task Completed |
+| `get_task_statistics` | Counts by status, overdue, due today |
+| `generate_study_plan` | LLM study plan; optional task creation |
+| `prioritize_tasks` | Suggested priority order |
+| `summarize_progress` | Progress summary + metrics |
+| `suggest_next_task` | Next open task by due date |
+
+### API configuration
+
+Configure the MCP client in `BackEnd/Api/appsettings.json`:
+
+```json
+"Mcp": {
+  "ServerProjectPath": "../Mcp/BallastLane.TaskAssistant.Mcp.Server/BallastLane.TaskAssistant.Mcp.Server.csproj",
+  "StartupTimeoutSeconds": 10,
+  "SessionPerRequest": true
+}
+```
+
+The API injects `BALLASTLANE_USER_ID` when spawning the server so tools run in the authenticated user's context. The LLM never receives `userId` in tool schemas.
+
+### Cursor (development)
+
+`.cursor/mcp.json` registers the same server for local testing in Cursor:
+
+```json
+{
+  "mcpServers": {
+    "ballastlane-tasks": {
+      "command": "dotnet",
+      "args": ["run", "--project", "BackEnd/Mcp/BallastLane.TaskAssistant.Mcp.Server/BallastLane.TaskAssistant.Mcp.Server.csproj"],
+      "env": {
+        "BALLASTLANE_USER_ID": "11111111-1111-1111-1111-111111111111"
+      }
+    }
+  }
+}
+```
+
+Use the seeded admin user id from `BackEnd/Infrastructure/Persistence/Scripts/seed.sql`. Ensure SQL Server is running and the API connection string matches the MCP server `appsettings.json` when testing tools that mutate data.
 

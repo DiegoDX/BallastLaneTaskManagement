@@ -4,8 +4,8 @@ using Application.DTOs.Agent;
 using Application.DTOs.Llm;
 using Application.Exceptions;
 using Application.Interfaces;
+using Application.Interfaces.Mcp;
 using Application.Llm.Agent;
-using Application.Llm.TaskAssistant;
 using Application.Services;
 using Microsoft.Extensions.Options;
 
@@ -14,16 +14,16 @@ namespace Application.Agent.Phases;
 public sealed class ExecutePhaseHandler : IAgentPhaseHandler
 {
     private readonly ILlmClient _llmClient;
-    private readonly ITaskToolExecutor _toolExecutor;
+    private readonly IMcpToolClient _mcpToolClient;
     private readonly AgentOptions _options;
 
     public ExecutePhaseHandler(
         ILlmClient llmClient,
-        ITaskToolExecutor toolExecutor,
+        IMcpToolClient mcpToolClient,
         IOptions<AgentOptions> options)
     {
         _llmClient = llmClient ?? throw new ArgumentNullException(nameof(llmClient));
-        _toolExecutor = toolExecutor ?? throw new ArgumentNullException(nameof(toolExecutor));
+        _mcpToolClient = mcpToolClient ?? throw new ArgumentNullException(nameof(mcpToolClient));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
     }
 
@@ -43,7 +43,7 @@ public sealed class ExecutePhaseHandler : IAgentPhaseHandler
         context.ExecuteMessages.Clear();
         context.ExecuteMessages.AddRange(messages);
 
-        var tools = TaskToolDefinitions.GetAllTools();
+        var tools = await _mcpToolClient.ListToolsAsync(context.UserId, cancellationToken);
         var toolCallRecords = new List<AgentToolCallRecord>();
         var iterations = 0;
 
@@ -85,7 +85,11 @@ public sealed class ExecutePhaseHandler : IAgentPhaseHandler
 
             foreach (var toolCall in toolCallsToProcess)
             {
-                var result = await _toolExecutor.ExecuteAsync(context.UserId, toolCall, cancellationToken);
+                var result = await _mcpToolClient.CallToolAsync(
+                    context.UserId,
+                    toolCall.Name,
+                    toolCall.Arguments,
+                    cancellationToken);
                 var success = !result.ResultJson.Contains("\"success\":false", StringComparison.OrdinalIgnoreCase)
                     && !result.ResultJson.Contains("\"error\"", StringComparison.OrdinalIgnoreCase);
 

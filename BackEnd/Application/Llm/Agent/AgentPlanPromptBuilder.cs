@@ -28,22 +28,27 @@ public static class AgentPlanPromptBuilder
 
         Available tools during execution:
         - create_task
-        - list_tasks
-        - get_task
         - update_task
         - delete_task
+        - search_tasks
+        - complete_task
+        - get_task_statistics
+        - generate_study_plan
+        - prioritize_tasks
+        - summarize_progress
+        - suggest_next_task
 
         Output JSON schema:
         {
           "goal": "short goal description",
           "steps": [
-            { "order": 1, "description": "what to do", "toolHint": "list_tasks" }
+            { "order": 1, "description": "what to do", "toolHint": "search_tasks" }
           ],
           "requiresApproval": false,
           "riskLevel": "low"
         }
 
-        Set requiresApproval to true when the plan involves delete_task, bulk updates, or high risk.
+        Set requiresApproval to true when the plan involves delete_task, bulk updates or complete_task, or high risk.
         riskLevel must be one of: low, medium, high.
         """;
 }

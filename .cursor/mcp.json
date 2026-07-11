@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "ballastlane-tasks": {
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "BackEnd/Mcp/BallastLane.TaskAssistant.Mcp.Server/BallastLane.TaskAssistant.Mcp.Server.csproj"
+      ],
+      "env": {
+        "BALLASTLANE_USER_ID": "11111111-1111-1111-1111-111111111111"
+      }
+    }
+  }
+}

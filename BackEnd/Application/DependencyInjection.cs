@@ -1,8 +1,10 @@
 using Application.Agent;
 using Application.Agent.Phases;
 using Application.Interfaces;
+using Application.Interfaces.Mcp;
 using Application.Interfaces.Services;
 using Application.Llm.TaskAssistant;
+using Application.Mcp;
 using Application.Rag;
 using Application.Services;
 using Microsoft.Extensions.Configuration;
@@ -29,7 +31,11 @@ public static class DependencyInjection
         services.AddScoped<ITaskSuggestionService, TaskSuggestionService>();
         services.AddScoped<IChatService, ChatService>();
         services.AddScoped<ITaskAssistantService, TaskAssistantService>();
+        services.AddScoped<ITaskToolHandlers, TaskToolHandlers>();
         services.AddScoped<ITaskToolExecutor, TaskToolExecutor>();
+        services.AddScoped<ITaskAnalyticsService, TaskAnalyticsService>();
+        services.AddScoped<ITaskPlanningService, TaskPlanningService>();
+        services.AddSingleton<IMcpToolCatalogMapper, McpToolCatalogMapper>();
         services.AddScoped<IDocAssistantService, DocAssistantService>();
         services.AddScoped<IRagRetriever, RagRetriever>();
         services.AddScoped<IAgentService, AgentService>();

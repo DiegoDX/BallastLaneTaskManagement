@@ -83,13 +83,14 @@ public sealed class PlanPhaseHandler : IAgentPhaseHandler
             return plan with { RequiresApproval = true };
         }
 
-        var updateSteps = plan.Steps.Count(step =>
-            string.Equals(step.ToolHint, TaskToolNames.UpdateTask, StringComparison.OrdinalIgnoreCase));
+        var mutatingSteps = plan.Steps.Count(step =>
+            string.Equals(step.ToolHint, McpToolNames.UpdateTask, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(step.ToolHint, McpToolNames.CompleteTask, StringComparison.OrdinalIgnoreCase));
 
         var hasDelete = plan.Steps.Any(step =>
-            string.Equals(step.ToolHint, TaskToolNames.DeleteTask, StringComparison.OrdinalIgnoreCase));
+            string.Equals(step.ToolHint, McpToolNames.DeleteTask, StringComparison.OrdinalIgnoreCase));
 
-        if (hasDelete || updateSteps >= _options.BulkUpdateApprovalThreshold)
+        if (hasDelete || mutatingSteps >= _options.BulkUpdateApprovalThreshold)
         {
             return plan with { RequiresApproval = true };
         }
