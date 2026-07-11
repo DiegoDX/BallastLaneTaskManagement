@@ -40,6 +40,14 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'doc-assistant',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/doc-assistant/doc-assistant.component').then(
+        (m) => m.DocAssistantComponent,
+      ),
+  },
+  {
     path: '**',
     redirectTo: 'login',
   },

@@ -23,6 +23,15 @@
         Task Assistant
       </button>
 
+      <button
+        type="button"
+        class="btn-secondary"
+        (click)="navigateToDocAssistant()"
+        [disabled]="isLoading()"
+      >
+        Doc Assistant
+      </button>
+
       <button type="button" class="btn-secondary" (click)="navigateToSuggest()" [disabled]="isLoading()">
         Create with AI
       </button>

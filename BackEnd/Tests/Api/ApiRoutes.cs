@@ -12,6 +12,8 @@ internal static class ApiRoutes
     public const string TaskSuggestionsCreate = "/api/v1/tasks/suggestions/create";
     public const string Chat = "/api/v1/chat";
     public const string TaskAssistant = "/api/v1/task-assistant";
+    public const string DocAssistant = "/api/v1/doc-assistant";
+    public const string DocAssistantReindex = "/api/v1/doc-assistant/reindex";
 
     public static string TaskById(Guid taskId) => $"/api/v1/tasks/{taskId}";
 }

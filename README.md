@@ -9,6 +9,8 @@ BallastLane lets users register, sign in, and manage personal tasks. Each task h
 
 A **Task Assistant** (`/task-assistant`) lets authenticated users manage tasks in natural language. The backend uses LLM function calling to invoke predefined tools (`create_task`, `list_tasks`, `get_task`, `update_task`, `delete_task`) that delegate to `ITaskService`.
 
+A **Doc Assistant** (`/doc-assistant`) answers questions about project documentation using RAG (Retrieval-Augmented Generation). On startup, the API indexes files from `BackEnd/Api/Documentation/`, embeds text chunks, and retrieves relevant context for each question before calling the LLM.
+
 On startup (non-Testing environments), the API automatically creates the SQL Server database if needed, applies the schema, and runs seed data including a default admin account.
 
 ## Architecture
@@ -89,6 +91,7 @@ The app runs at http://localhost:4200 (Angular default). Routes:
 | `/tasks/new` | Create task |
 | `/tasks/edit/:id` | Edit task |
 | `/task-assistant` | AI task assistant — create, list, and manage tasks in natural language (auth required) |
+| `/doc-assistant` | Doc assistant — ask questions about project documentation (auth required) |
 
 Integration tests use separate config in BackEnd/Tests/appsettings.integration.json and appsettings.api.integration.json.
 
@@ -105,6 +108,8 @@ Integration tests use separate config in BackEnd/Tests/appsettings.integration.j
 | PUT | `/api/v1/tasks/{id}` | Yes | Update title, description, status |
 | DELETE | `/api/v1/tasks/{id}` | Yes | Delete task |
 | POST | `/api/v1/task-assistant` | Yes | Natural-language task assistant (function calling) |
+| POST | `/api/v1/doc-assistant` | Yes | Ask questions about indexed project documentation (RAG) |
+| POST | `/api/v1/doc-assistant/reindex` | Yes | Rebuild the documentation vector index |
 
 ## Task Assistant
 
@@ -172,4 +177,99 @@ ollama serve
 ```
 
 If the model does not support tools, the assistant may respond with text only and no task actions will run. Use OpenAI in production or switch to a supported Ollama model for local testing.
+
+## Doc Assistant
+
+The Doc Assistant is available at **`/doc-assistant`** in the UI (link from the task list) or via **`POST /api/v1/doc-assistant`**. Send a conversation history; the API retrieves relevant documentation chunks, injects them into the prompt, and returns an answer with **source citations**.
+
+**Example request:**
+
+```json
+POST /api/v1/doc-assistant
+{
+  "messages": [
+    { "role": "user", "content": "How does authentication work?" }
+  ]
+}
+```
+
+**Example response:**
+
+```json
+{
+  "content": "Authentication uses JWT Bearer tokens. Clients obtain a token via POST /api/v1/auth/login and send it in the Authorization header on protected endpoints.",
+  "model": "llama3.2",
+  "sources": [
+    {
+      "fileName": "README.md",
+      "chunkIndex": 5,
+      "excerpt": "Auth | JWT Bearer token authentication. Clients obtain an access token by calling the login endpoint..."
+    },
+    {
+      "fileName": "Requirements.docx",
+      "chunkIndex": 2,
+      "excerpt": "All task endpoints require authentication. Each user may only access their own tasks..."
+    }
+  ]
+}
+```
+
+### Example prompts
+
+- `How does authentication work?`
+- `What is the project architecture?`
+- `What are the API endpoints?`
+
+### Documentation folder
+
+Indexed files live under **`BackEnd/Api/Documentation/`** (copied to the API output directory at build time). Configure the folder name via `Rag:DocumentationPath` in appsettings (default: `Documentation`).
+
+Supported formats:
+
+| Extension | Loader |
+|-----------|--------|
+| `.md` | Markdown |
+| `.pdf` | PDF (UglyToad.PdfPig) |
+| `.docx` | Word (DocumentFormat.OpenXml) |
+
+Sample files included with the project:
+
+- `README.md` — authentication, API overview, JWT interceptor
+- `CleanArchitecture.pdf` — Domain / Application / Infrastructure / API layers
+- `Requirements.docx` — business rules and auth requirements
+
+On startup (non-Testing environments), `RagIndexHostedService` chunks each file (~800 characters with overlap), generates embeddings, and stores vectors in an in-memory index. If Ollama is unavailable at startup, the API still runs but Doc Assistant requests return `502`/`503` until indexing succeeds. Trigger a manual rebuild with **`POST /api/v1/doc-assistant/reindex`**.
+
+### LLM and embedding configuration
+
+Doc Assistant uses the same `Llm` provider as Chat and Task Assistant for the final answer, plus a separate **embedding model** for vector search. Set both in `BackEnd/Api/appsettings.json` or `appsettings.Development.json`:
+
+```json
+"Llm": {
+  "Provider": "Ollama",
+  "Model": "llama3.2",
+  "EmbeddingModel": "nomic-embed-text",
+  "BaseUrl": "http://localhost:11434"
+},
+"Rag": {
+  "DocumentationPath": "Documentation"
+}
+```
+
+| Environment | Chat model | Embedding model |
+|-------------|------------|-----------------|
+| Production (`appsettings.json`) | OpenAI `gpt-4o-mini` | OpenAI `text-embedding-3-small` |
+| Development (`appsettings.Development.json`) | Ollama `llama3.2` | Ollama `nomic-embed-text` |
+
+### Ollama embeddings (local development)
+
+When `Llm:Provider` is `Ollama`, pull both the chat model and the embedding model:
+
+```bash
+ollama pull llama3.2
+ollama pull nomic-embed-text
+ollama serve
+```
+
+Ensure `Llm:EmbeddingModel` matches the pulled embedding model (default: `nomic-embed-text`). Without it, startup indexing and Doc Assistant queries fail with `502 Bad Gateway` or `503 Service Unavailable`. After pulling the model, restart the API or call `POST /api/v1/doc-assistant/reindex`.
 

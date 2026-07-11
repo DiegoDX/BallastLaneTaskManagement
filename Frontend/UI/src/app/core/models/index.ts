@@ -17,3 +17,7 @@ export * from './task-assistant-message.model';
 export * from './task-assistant-action.model';
 export * from './task-assistant-request.model';
 export * from './task-assistant-response.model';
+export * from './doc-assistant-message.model';
+export * from './doc-assistant-source.model';
+export * from './doc-assistant-request.model';
+export * from './doc-assistant-response.model';

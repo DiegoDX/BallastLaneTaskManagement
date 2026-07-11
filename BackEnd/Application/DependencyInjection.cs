@@ -1,5 +1,7 @@
+using Application.Interfaces;
 using Application.Interfaces.Services;
 using Application.Llm.TaskAssistant;
+using Application.Rag;
 using Application.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,6 +25,8 @@ public static class DependencyInjection
         services.AddScoped<IChatService, ChatService>();
         services.AddScoped<ITaskAssistantService, TaskAssistantService>();
         services.AddScoped<ITaskToolExecutor, TaskToolExecutor>();
+        services.AddScoped<IDocAssistantService, DocAssistantService>();
+        services.AddScoped<IRagRetriever, RagRetriever>();
 
         return services;
     }

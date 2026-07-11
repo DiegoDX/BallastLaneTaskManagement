@@ -46,6 +46,7 @@ public sealed class LlmSettingsValidatorTests
             Provider = LlmSettings.OpenAiProvider,
             ApiKey = "sk-test-key",
             Model = "gpt-4o-mini",
+            EmbeddingModel = "text-embedding-3-small",
             TimeoutSeconds = 60,
             MaxRetryAttempts = 2
         };
@@ -110,6 +111,7 @@ public sealed class LlmSettingsValidatorTests
         {
             Provider = LlmSettings.OllamaProvider,
             Model = "llama3.2",
+            EmbeddingModel = "nomic-embed-text",
             BaseUrl = "http://localhost:11434",
             TimeoutSeconds = 120,
             MaxRetryAttempts = 2
@@ -153,6 +155,7 @@ public sealed class LlmSettingsValidatorTests
         {
             Provider = LlmSettings.OllamaProvider,
             Model = "llama3.2",
+            EmbeddingModel = "nomic-embed-text",
             BaseUrl = null,
             TimeoutSeconds = 60,
             MaxRetryAttempts = 2
@@ -175,6 +178,7 @@ public sealed class LlmSettingsValidatorTests
         {
             Provider = LlmSettings.OllamaProvider,
             Model = "llama3.2",
+            EmbeddingModel = "nomic-embed-text",
             BaseUrl = "not-a-valid-uri",
             TimeoutSeconds = 60,
             MaxRetryAttempts = 2
@@ -186,6 +190,52 @@ public sealed class LlmSettingsValidatorTests
         // Assert
         result.Failed.Should().BeTrue();
         result.FailureMessage.Should().Contain("Llm:BaseUrl must be a valid absolute URI when Provider is Ollama.");
+    }
+
+    [Fact]
+    public void Validate_fails_in_production_when_embedding_model_is_missing_for_openai()
+    {
+        // Arrange
+        var validator = CreateValidator("Production");
+        var settings = new LlmSettings
+        {
+            Provider = LlmSettings.OpenAiProvider,
+            ApiKey = "sk-test-key",
+            Model = "gpt-4o-mini",
+            EmbeddingModel = "   ",
+            TimeoutSeconds = 60,
+            MaxRetryAttempts = 2
+        };
+
+        // Act
+        var result = validator.Validate(Options.DefaultName, settings);
+
+        // Assert
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain("Llm:EmbeddingModel is required in Production");
+    }
+
+    [Fact]
+    public void Validate_fails_in_production_when_embedding_model_is_missing_for_ollama()
+    {
+        // Arrange
+        var validator = CreateValidator("Production");
+        var settings = new LlmSettings
+        {
+            Provider = LlmSettings.OllamaProvider,
+            Model = "llama3.2",
+            EmbeddingModel = "   ",
+            BaseUrl = "http://localhost:11434",
+            TimeoutSeconds = 60,
+            MaxRetryAttempts = 2
+        };
+
+        // Act
+        var result = validator.Validate(Options.DefaultName, settings);
+
+        // Assert
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain("Llm:EmbeddingModel is required in Production when Provider is Ollama.");
     }
 
     [Fact]
@@ -301,6 +351,7 @@ public sealed class LlmSettingsValidatorTests
             Provider = LlmSettings.OpenAiProvider,
             ApiKey = string.Empty,
             Model = "gpt-4o-mini",
+            EmbeddingModel = "text-embedding-3-small",
             TimeoutSeconds = 60,
             MaxRetryAttempts = 2
         };
@@ -312,6 +363,7 @@ public sealed class LlmSettingsValidatorTests
         {
             Provider = LlmSettings.OllamaProvider,
             Model = "llama3.2",
+            EmbeddingModel = "nomic-embed-text",
             BaseUrl = "http://localhost:11434",
             TimeoutSeconds = 120,
             MaxRetryAttempts = 2

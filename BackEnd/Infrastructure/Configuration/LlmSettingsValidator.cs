@@ -53,6 +53,12 @@ public sealed class LlmSettingsValidator : IValidateOptions<LlmSettings>
                     return ValidateOptionsResult.Fail(
                         "Llm:Model is required in Production when Provider is OpenAI.");
                 }
+
+                if (string.IsNullOrWhiteSpace(options.EmbeddingModel))
+                {
+                    return ValidateOptionsResult.Fail(
+                        "Llm:EmbeddingModel is required in Production when Provider is OpenAI.");
+                }
             }
             else
             {
@@ -60,6 +66,12 @@ public sealed class LlmSettingsValidator : IValidateOptions<LlmSettings>
                 {
                     return ValidateOptionsResult.Fail(
                         "Llm:Model is required in Production when Provider is Ollama.");
+                }
+
+                if (string.IsNullOrWhiteSpace(options.EmbeddingModel))
+                {
+                    return ValidateOptionsResult.Fail(
+                        "Llm:EmbeddingModel is required in Production when Provider is Ollama.");
                 }
 
                 if (string.IsNullOrWhiteSpace(options.BaseUrl))

@@ -17,4 +17,7 @@ export const API_PATHS = {
   taskAssistant: {
     base: '/task-assistant',
   },
+  docAssistant: {
+    base: '/doc-assistant',
+  },
 } as const;
