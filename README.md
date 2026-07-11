@@ -11,6 +11,8 @@ A **Task Assistant** (`/task-assistant`) lets authenticated users manage tasks i
 
 A **Doc Assistant** (`/doc-assistant`) answers questions about project documentation using RAG (Retrieval-Augmented Generation). On startup, the API indexes files from `BackEnd/Api/Documentation/`, embeds text chunks, and retrieves relevant context for each question before calling the LLM.
 
+An **Agent** (`/agent`) runs a multi-phase workflow (Plan → Approval → Execute → Review → Summary) to organize and manage tasks in natural language. The Execute phase uses tool-calling against the same task tools as Task Assistant.
+
 On startup (non-Testing environments), the API automatically creates the SQL Server database if needed, applies the schema, and runs seed data including a default admin account.
 
 ## Architecture
@@ -92,6 +94,7 @@ The app runs at http://localhost:4200 (Angular default). Routes:
 | `/tasks/edit/:id` | Edit task |
 | `/task-assistant` | AI task assistant — create, list, and manage tasks in natural language (auth required) |
 | `/doc-assistant` | Doc assistant — ask questions about project documentation (auth required) |
+| `/agent` | Agent — plan, execute, and review task changes with AI (auth required) |
 
 Integration tests use separate config in BackEnd/Tests/appsettings.integration.json and appsettings.api.integration.json.
 
@@ -110,6 +113,8 @@ Integration tests use separate config in BackEnd/Tests/appsettings.integration.j
 | POST | `/api/v1/task-assistant` | Yes | Natural-language task assistant (function calling) |
 | POST | `/api/v1/doc-assistant` | Yes | Ask questions about indexed project documentation (RAG) |
 | POST | `/api/v1/doc-assistant/reindex` | Yes | Rebuild the documentation vector index |
+| POST | `/api/v1/agent` | Yes | Run the task agent workflow |
+| POST | `/api/v1/agent/continue` | Yes | Approve or reject a pending agent plan |
 
 ## Task Assistant
 
@@ -272,4 +277,93 @@ ollama serve
 ```
 
 Ensure `Llm:EmbeddingModel` matches the pulled embedding model (default: `nomic-embed-text`). Without it, startup indexing and Doc Assistant queries fail with `502 Bad Gateway` or `503 Service Unavailable`. After pulling the model, restart the API or call `POST /api/v1/doc-assistant/reindex`.
+
+## Agent
+
+The Agent is available at **`/agent`** in the UI (link from the task list) or via **`POST /api/v1/agent`**. Unlike Task Assistant's single ReAct loop, the Agent runs a **deterministic multi-phase workflow**:
+
+1. **Plan** — LLM produces a structured JSON plan
+2. **Approval** — pauses when the plan is destructive or high-risk
+3. **Execute** — agentic tool-calling loop (reuses task tools)
+4. **Review** — LLM evaluates execution against the plan
+5. **Summary** — user-facing summary with phase timeline
+
+**Example request:**
+
+```json
+POST /api/v1/agent
+{
+  "messages": [
+    { "role": "user", "content": "Organize my tasks by due date" }
+  ]
+}
+```
+
+**Example response (completed):**
+
+```json
+{
+  "summary": "I listed your pending tasks and updated statuses by due date.",
+  "status": "Completed",
+  "phases": [
+    { "phase": "Plan", "status": "Completed", "outputJson": "{...}", "durationMs": 1200 },
+    { "phase": "Approval", "status": "Skipped", "outputJson": null, "durationMs": 0 },
+    { "phase": "Execute", "status": "Completed", "outputJson": "{...}", "durationMs": 4500 },
+    { "phase": "Review", "status": "Completed", "outputJson": "{...}", "durationMs": 800 },
+    { "phase": "Summary", "status": "Completed", "outputJson": "{...}", "durationMs": 600 }
+  ],
+  "actions": [
+    { "type": "listed", "taskId": null, "title": null },
+    { "type": "updated", "taskId": "...", "title": "Study history", "status": "InProgress" }
+  ],
+  "executionReport": {
+    "iterations": 3,
+    "toolCalls": [
+      { "name": "list_tasks", "success": true },
+      { "name": "update_task", "success": true }
+    ]
+  },
+  "model": "llama3.2"
+}
+```
+
+When a plan requires approval, the first response returns `"status": "AwaitingApproval"` with a `runId` and `plan`. Approve or reject via:
+
+```json
+POST /api/v1/agent/continue
+{
+  "runId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "approved": true
+}
+```
+
+### Example prompts
+
+- `Organize my tasks by due date`
+- `Tomorrow I need to study history — set up my tasks`
+- `Show pending tasks and update overdue ones to InProgress`
+
+### Agent configuration
+
+Configure limits in `BackEnd/Api/appsettings.json` or `appsettings.Development.json`:
+
+```json
+"Agent": {
+  "MaxExecuteIterations": 10,
+  "MaxToolCallsPerIteration": 5,
+  "MaxPhaseRetries": 2,
+  "RunTtlMinutes": 30,
+  "RequireApprovalForDestructiveActions": true,
+  "BulkUpdateApprovalThreshold": 3
+}
+```
+
+The Agent reuses the same `Llm:Provider` and `Llm:Model` as Chat and Task Assistant. For local development with Ollama, use a **tools-capable model** (default: `llama3.2`):
+
+```bash
+ollama pull llama3.2
+ollama serve
+```
+
+Plans that include `delete_task`, bulk updates above the threshold, or `riskLevel: high` require explicit user approval before execution.
 

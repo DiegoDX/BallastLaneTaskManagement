@@ -1,3 +1,5 @@
+using Application.Agent;
+using Application.Agent.Phases;
 using Application.Interfaces;
 using Application.Interfaces.Services;
 using Application.Llm.TaskAssistant;
@@ -17,6 +19,9 @@ public static class DependencyInjection
         services.Configure<RefreshTokenOptions>(
             configuration.GetSection(RefreshTokenOptions.SectionName));
 
+        services.Configure<AgentOptions>(
+            configuration.GetSection(AgentOptions.SectionName));
+
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ITaskService, TaskService>();
@@ -27,6 +32,13 @@ public static class DependencyInjection
         services.AddScoped<ITaskToolExecutor, TaskToolExecutor>();
         services.AddScoped<IDocAssistantService, DocAssistantService>();
         services.AddScoped<IRagRetriever, RagRetriever>();
+        services.AddScoped<IAgentService, AgentService>();
+        services.AddScoped<IAgentOrchestrator, AgentOrchestrator>();
+        services.AddScoped<IAgentPhaseHandler, PlanPhaseHandler>();
+        services.AddScoped<IAgentPhaseHandler, ApprovalPhaseHandler>();
+        services.AddScoped<IAgentPhaseHandler, ExecutePhaseHandler>();
+        services.AddScoped<IAgentPhaseHandler, ReviewPhaseHandler>();
+        services.AddScoped<IAgentPhaseHandler, SummaryPhaseHandler>();
 
         return services;
     }

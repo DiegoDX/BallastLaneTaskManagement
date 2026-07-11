@@ -1,5 +1,7 @@
+using Application.Agent;
 using Application.Interfaces;
 using Application.Interfaces.Repositories;
+using Infrastructure.Agent;
 using Infrastructure.Configuration;
 using Infrastructure.Data;
 using Infrastructure.Llm;
@@ -28,7 +30,13 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(LlmSettings.SectionName))
             .ValidateOnStart();
 
+        services
+            .AddOptions<AgentOptions>()
+            .Bind(configuration.GetSection(AgentOptions.SectionName))
+            .ValidateOnStart();
+
         services.AddSingleton<IValidateOptions<LlmSettings>, LlmSettingsValidator>();
+        services.AddSingleton<IValidateOptions<AgentOptions>, AgentSettingsValidator>();
         services.AddHttpClient<OllamaLlmClient>();
         services.AddHttpClient<OllamaEmbeddingClient>();
         services.AddSingleton<OpenAiLlmClient>();
@@ -51,6 +59,7 @@ public static class DependencyInjection
         services.AddSingleton<IVectorStore, InMemoryVectorStore>();
         services.AddScoped<IDocumentIndexer, DocumentIndexer>();
         services.AddHostedService<RagIndexHostedService>();
+        services.AddSingleton<IAgentRunStore, InMemoryAgentRunStore>();
 
         return services;
     }

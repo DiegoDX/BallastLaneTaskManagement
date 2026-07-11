@@ -48,6 +48,12 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'agent',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/agent/agent.component').then((m) => m.AgentComponent),
+  },
+  {
     path: '**',
     redirectTo: 'login',
   },

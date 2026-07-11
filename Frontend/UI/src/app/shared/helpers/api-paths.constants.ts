@@ -20,4 +20,8 @@ export const API_PATHS = {
   docAssistant: {
     base: '/doc-assistant',
   },
+  agent: {
+    base: '/agent',
+    continue: '/agent/continue',
+  },
 } as const;

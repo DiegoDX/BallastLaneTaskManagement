@@ -131,6 +131,10 @@ export class TaskListComponent implements OnInit {
     void this.router.navigate(['/doc-assistant']);
   }
 
+  navigateToAgent(): void {
+    void this.router.navigate(['/agent']);
+  }
+
   navigateToEdit(taskId: string): void {
     void this.router.navigate(['/tasks/edit', taskId]);
   }

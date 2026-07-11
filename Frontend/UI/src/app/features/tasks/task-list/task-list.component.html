@@ -32,6 +32,15 @@
         Doc Assistant
       </button>
 
+      <button
+        type="button"
+        class="btn-secondary"
+        (click)="navigateToAgent()"
+        [disabled]="isLoading()"
+      >
+        Agent
+      </button>
+
       <button type="button" class="btn-secondary" (click)="navigateToSuggest()" [disabled]="isLoading()">
         Create with AI
       </button>

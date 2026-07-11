@@ -1,0 +1,149 @@
+<section class="agent-page">
+  <div class="form-card agent-card">
+    <header class="form-header">
+      <div>
+        <h1>Agent</h1>
+        <p class="subtitle">
+          Plan, execute, and review task changes with AI.
+        </p>
+      </div>
+      <a routerLink="/tasks" class="back-link">Back to tasks</a>
+    </header>
+
+    @if (errorMessage()) {
+      <div class="alert alert-error" role="alert">
+        {{ errorMessage() }}
+      </div>
+    }
+
+    <div class="phase-timeline" aria-label="Agent workflow phases">
+      @for (phase of phaseOrder; track phase) {
+        <div class="phase-step">
+          <span class="phase-name">{{ phase }}</span>
+          <span class="phase-status">{{ phaseStatusLabel(phase) }}</span>
+        </div>
+      }
+    </div>
+
+    @if (pendingPlan(); as plan) {
+      <div class="approval-panel" role="region" aria-label="Plan approval">
+        <h2>Plan approval required</h2>
+        <p class="plan-goal">{{ plan.goal }}</p>
+        <ol class="plan-steps">
+          @for (step of plan.steps; track step.order) {
+            <li>
+              {{ step.description }}
+              @if (step.toolHint) {
+                <span class="tool-hint">({{ step.toolHint }})</span>
+              }
+            </li>
+          }
+        </ol>
+        <div class="approval-actions">
+          <button
+            type="button"
+            class="btn-secondary"
+            (click)="onRejectPlan()"
+            [disabled]="isSending()"
+          >
+            Reject
+          </button>
+          <button
+            type="button"
+            class="btn-primary"
+            (click)="onApprovePlan()"
+            [disabled]="isSending()"
+          >
+            Approve
+          </button>
+        </div>
+      </div>
+    }
+
+    <div
+      #messagesContainer
+      class="messages"
+      role="log"
+      aria-live="polite"
+      aria-relevant="additions"
+    >
+      @if (messages().length === 0) {
+        <div class="empty-chat">
+          <p>Try a suggested prompt or describe how you want your tasks organized.</p>
+          <div class="prompt-chips">
+            @for (prompt of suggestedPrompts; track prompt) {
+              <button
+                type="button"
+                class="prompt-chip"
+                (click)="onSuggestedPrompt(prompt)"
+                [disabled]="isSending()"
+              >
+                {{ prompt }}
+              </button>
+            }
+          </div>
+        </div>
+      }
+
+      @for (message of messages(); track $index) {
+        <div
+          class="message"
+          [class.message-user]="message.role === 'user'"
+          [class.message-assistant]="message.role === 'assistant'"
+        >
+          <span class="message-role">
+            {{ message.role === 'user' ? 'You' : 'Agent' }}
+          </span>
+          <div class="message-bubble">{{ message.content }}</div>
+
+          @if (message.phases && message.phases.length > 0) {
+            <div class="phase-results" role="list" aria-label="Phase results">
+              @for (phase of message.phases; track phase.phase) {
+                <span class="phase-chip" role="listitem">
+                  {{ phase.phase }}: {{ phase.status }}
+                </span>
+              }
+            </div>
+          }
+
+          @if (message.actions && message.actions.length > 0) {
+            <div class="action-chips" role="list" aria-label="Task actions">
+              @for (action of message.actions; track $index) {
+                <span class="action-chip" role="listitem">
+                  {{ formatAction(action) }}
+                </span>
+              }
+            </div>
+          }
+        </div>
+      }
+
+      @if (isSending()) {
+        <div class="message message-assistant">
+          <span class="message-role">Agent</span>
+          <div class="message-bubble message-loading">Working through the workflow...</div>
+        </div>
+      }
+    </div>
+
+    <form class="chat-form" (ngSubmit)="onSend()">
+      <div class="form-field">
+        <label for="agent-message">Message</label>
+        <textarea
+          id="agent-message"
+          rows="3"
+          [formControl]="messageControl"
+          (keydown)="onMessageKeydown($event)"
+          placeholder="Describe what you want the agent to do with your tasks..."
+          [disabled]="isSending()"
+        ></textarea>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn-primary" [disabled]="isSending()">
+          Send
+        </button>
+      </div>
+    </form>
+  </div>
+</section>

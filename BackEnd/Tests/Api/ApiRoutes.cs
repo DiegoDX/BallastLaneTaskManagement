@@ -14,6 +14,8 @@ internal static class ApiRoutes
     public const string TaskAssistant = "/api/v1/task-assistant";
     public const string DocAssistant = "/api/v1/doc-assistant";
     public const string DocAssistantReindex = "/api/v1/doc-assistant/reindex";
+    public const string Agent = "/api/v1/agent";
+    public const string AgentContinue = "/api/v1/agent/continue";
 
     public static string TaskById(Guid taskId) => $"/api/v1/tasks/{taskId}";
 }
