@@ -34,6 +34,11 @@ public sealed class AgentSettingsValidator : IValidateOptions<AgentOptions>
             return ValidateOptionsResult.Fail("Agent:BulkUpdateApprovalThreshold must be greater than zero.");
         }
 
+        if (options.MaxReExecutionAttempts < 0)
+        {
+            return ValidateOptionsResult.Fail("Agent:MaxReExecutionAttempts must be zero or greater.");
+        }
+
         return ValidateOptionsResult.Success;
     }
 }

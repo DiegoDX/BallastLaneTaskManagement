@@ -24,7 +24,9 @@ public static class AgentReviewParser
         return new AgentReview(
             payload.Success,
             NormalizeList(payload.Issues),
-            NormalizeList(payload.Recommendations));
+            NormalizeList(payload.Recommendations),
+            payload.RequiresReExecution,
+            string.IsNullOrWhiteSpace(payload.ReExecutionHint) ? null : payload.ReExecutionHint.Trim());
     }
 
     private static LlmAgentReviewPayload DeserializePayload(string content)
@@ -50,5 +52,7 @@ public static class AgentReviewParser
     private sealed record LlmAgentReviewPayload(
         [property: JsonPropertyName("success")] bool Success,
         [property: JsonPropertyName("issues")] IReadOnlyList<string>? Issues,
-        [property: JsonPropertyName("recommendations")] IReadOnlyList<string>? Recommendations);
+        [property: JsonPropertyName("recommendations")] IReadOnlyList<string>? Recommendations,
+        [property: JsonPropertyName("requiresReExecution")] bool RequiresReExecution = false,
+        [property: JsonPropertyName("reExecutionHint")] string? ReExecutionHint = null);
 }

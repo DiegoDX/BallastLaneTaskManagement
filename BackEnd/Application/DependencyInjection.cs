@@ -1,5 +1,6 @@
 using Application.Agent;
 using Application.Agent.Phases;
+using Application.Agent.Specialists;
 using Application.Interfaces;
 using Application.Interfaces.Mcp;
 using Application.Interfaces.Services;
@@ -40,6 +41,10 @@ public static class DependencyInjection
         services.AddScoped<IRagRetriever, RagRetriever>();
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<IAgentOrchestrator, AgentOrchestrator>();
+        services.AddScoped<IPlannerAgent, PlannerAgent>();
+        services.AddScoped<IExecutorAgent, ExecutorAgent>();
+        services.AddScoped<IReviewerAgent, ReviewerAgent>();
+        services.AddScoped<ISummaryAgent, SummaryAgent>();
         services.AddScoped<IAgentPhaseHandler, PlanPhaseHandler>();
         services.AddScoped<IAgentPhaseHandler, ApprovalPhaseHandler>();
         services.AddScoped<IAgentPhaseHandler, ExecutePhaseHandler>();

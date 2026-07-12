@@ -77,7 +77,9 @@ public sealed class InMemoryAgentRunStore : IAgentRunStore
             Summary = source.Summary,
             Model = source.Model,
             Status = source.Status,
-            IsContinuation = source.IsContinuation
+            IsContinuation = source.IsContinuation,
+            ReExecutionCount = source.ReExecutionCount,
+            ReExecutionHint = source.ReExecutionHint
         };
 
         clone.Actions.AddRange(source.Actions);

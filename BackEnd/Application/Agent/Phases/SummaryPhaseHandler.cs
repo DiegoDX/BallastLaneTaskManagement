@@ -1,24 +1,17 @@
 using System.Text.Json;
-using Application.Agent.Parsing;
+using Application.Agent.Specialists;
 using Application.DTOs.Agent;
-using Application.DTOs.Llm;
-using Application.Exceptions;
-using Application.Interfaces;
-using Application.Llm.Agent;
-using Application.Services;
-using Microsoft.Extensions.Options;
+using Application.DTOs.Agent.Specialists;
 
 namespace Application.Agent.Phases;
 
 public sealed class SummaryPhaseHandler : IAgentPhaseHandler
 {
-    private readonly ILlmClient _llmClient;
-    private readonly AgentOptions _options;
+    private readonly ISummaryAgent _summaryAgent;
 
-    public SummaryPhaseHandler(ILlmClient llmClient, IOptions<AgentOptions> options)
+    public SummaryPhaseHandler(ISummaryAgent summaryAgent)
     {
-        _llmClient = llmClient ?? throw new ArgumentNullException(nameof(llmClient));
-        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _summaryAgent = summaryAgent ?? throw new ArgumentNullException(nameof(summaryAgent));
     }
 
     public string PhaseName => AgentPhaseNames.Summary;
@@ -34,52 +27,16 @@ public sealed class SummaryPhaseHandler : IAgentPhaseHandler
             return new AgentPhaseOutcome(AgentPhaseStatus.Skipped);
         }
 
-        var chatRequest = AgentSummaryPromptBuilder.Build(
-            context.Plan,
-            context.Review,
-            context.Actions);
+        var result = await _summaryAgent.SummarizeAsync(
+            new SummaryAgentRequest(context.Plan, context.Review, context.Actions, context.Status),
+            cancellationToken);
 
-        TaskSuggestionService.ValidateLlmChatRequest(chatRequest);
-
-        AgentSummaryResult? summaryResult = null;
-        ValidationException? lastException = null;
-
-        for (var attempt = 0; attempt <= _options.MaxPhaseRetries; attempt++)
-        {
-            var response = await _llmClient.CompleteChatAsync(chatRequest, cancellationToken);
-            context.Model ??= response.Model;
-
-            try
-            {
-                summaryResult = AgentSummaryParser.Parse(response.Content);
-                break;
-            }
-            catch (ValidationException ex) when (attempt < _options.MaxPhaseRetries)
-            {
-                lastException = ex;
-                chatRequest = chatRequest with
-                {
-                    Messages =
-                    [
-                        .. chatRequest.Messages,
-                        new LlmMessage(
-                            LlmMessageRole.User,
-                            "Your previous response was invalid. Return valid JSON with a summary field.")
-                    ]
-                };
-            }
-        }
-
-        if (summaryResult is null)
-        {
-            throw lastException ?? new ValidationException("Agent summary response could not be parsed.");
-        }
-
-        context.Summary = summaryResult.Summary;
+        context.Summary = result.Summary;
         context.Status = AgentRunStatus.Completed;
+        context.Model ??= result.Model;
 
         return new AgentPhaseOutcome(
             AgentPhaseStatus.Completed,
-            summaryResult.OutputJson ?? JsonSerializer.Serialize(new { summary = summaryResult.Summary }));
+            result.OutputJson ?? JsonSerializer.Serialize(new { summary = result.Summary }));
     }
 }

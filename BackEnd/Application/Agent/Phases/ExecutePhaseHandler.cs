@@ -1,30 +1,17 @@
-using System.Diagnostics;
 using System.Text.Json;
+using Application.Agent.Specialists;
 using Application.DTOs.Agent;
-using Application.DTOs.Llm;
-using Application.Exceptions;
-using Application.Interfaces;
-using Application.Interfaces.Mcp;
-using Application.Llm.Agent;
-using Application.Services;
-using Microsoft.Extensions.Options;
+using Application.DTOs.Agent.Specialists;
 
 namespace Application.Agent.Phases;
 
 public sealed class ExecutePhaseHandler : IAgentPhaseHandler
 {
-    private readonly ILlmClient _llmClient;
-    private readonly IMcpToolClient _mcpToolClient;
-    private readonly AgentOptions _options;
+    private readonly IExecutorAgent _executorAgent;
 
-    public ExecutePhaseHandler(
-        ILlmClient llmClient,
-        IMcpToolClient mcpToolClient,
-        IOptions<AgentOptions> options)
+    public ExecutePhaseHandler(IExecutorAgent executorAgent)
     {
-        _llmClient = llmClient ?? throw new ArgumentNullException(nameof(llmClient));
-        _mcpToolClient = mcpToolClient ?? throw new ArgumentNullException(nameof(mcpToolClient));
-        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _executorAgent = executorAgent ?? throw new ArgumentNullException(nameof(executorAgent));
     }
 
     public string PhaseName => AgentPhaseNames.Execute;
@@ -35,83 +22,33 @@ public sealed class ExecutePhaseHandler : IAgentPhaseHandler
     {
         ArgumentNullException.ThrowIfNull(context.Plan);
 
-        var stopwatch = Stopwatch.StartNew();
-        var messages = context.ExecuteMessages.Count > 0
-            ? context.ExecuteMessages
-            : AgentExecutePromptBuilder.BuildMessages(context.Messages, context.Plan);
+        var result = await _executorAgent.ExecuteAsync(
+            new ExecutorAgentRequest(
+                context.UserId,
+                context.Messages,
+                context.Plan,
+                context.ExecuteMessages,
+                context.ReExecutionHint),
+            cancellationToken);
+
+        context.ExecutionReport = result.ExecutionReport;
+        context.Model ??= result.Model;
+        context.ReExecutionHint = null;
 
         context.ExecuteMessages.Clear();
-        context.ExecuteMessages.AddRange(messages);
+        context.ExecuteMessages.AddRange(result.ExecuteMessages);
 
-        var tools = await _mcpToolClient.ListToolsAsync(context.UserId, cancellationToken);
-        var toolCallRecords = new List<AgentToolCallRecord>();
-        var iterations = 0;
-
-        for (var iteration = 0; iteration < _options.MaxExecuteIterations; iteration++)
+        foreach (var action in result.Actions)
         {
-            iterations++;
-            var chatRequest = AgentExecutePromptBuilder.BuildChatRequest(messages);
-            TaskSuggestionService.ValidateLlmChatRequest(chatRequest);
-
-            var completion = await _llmClient.CompleteChatWithToolsAsync(
-                chatRequest,
-                tools,
-                cancellationToken);
-
-            context.Model ??= completion.Model;
-
-            if (completion.ToolCalls.Count == 0)
-            {
-                context.ExecutionReport = new AgentExecutionReport(iterations, toolCallRecords);
-                stopwatch.Stop();
-
-                var outputJson = JsonSerializer.Serialize(new
-                {
-                    iterations,
-                    assistantMessage = completion.Content
-                });
-
-                return new AgentPhaseOutcome(AgentPhaseStatus.Completed, outputJson);
-            }
-
-            messages.Add(new LlmMessage(
-                LlmMessageRole.Assistant,
-                completion.Content ?? string.Empty,
-                ToolCalls: completion.ToolCalls));
-
-            var toolCallsToProcess = completion.ToolCalls
-                .Take(_options.MaxToolCallsPerIteration)
-                .ToList();
-
-            foreach (var toolCall in toolCallsToProcess)
-            {
-                var result = await _mcpToolClient.CallToolAsync(
-                    context.UserId,
-                    toolCall.Name,
-                    toolCall.Arguments,
-                    cancellationToken);
-                var success = !result.ResultJson.Contains("\"success\":false", StringComparison.OrdinalIgnoreCase)
-                    && !result.ResultJson.Contains("\"error\"", StringComparison.OrdinalIgnoreCase);
-
-                toolCallRecords.Add(new AgentToolCallRecord(toolCall.Name, success));
-
-                if (result.Action is not null)
-                {
-                    context.Actions.Add(result.Action);
-                }
-
-                messages.Add(new LlmMessage(
-                    LlmMessageRole.Tool,
-                    result.ResultJson,
-                    ToolCallId: toolCall.Id));
-            }
-
-            context.ExecuteMessages.Clear();
-            context.ExecuteMessages.AddRange(messages);
+            context.Actions.Add(action);
         }
 
-        throw new LlmException(
-            "Agent exceeded maximum execute iterations.",
-            isTransient: false);
+        var outputJson = JsonSerializer.Serialize(new
+        {
+            result.ExecutionReport.Iterations,
+            assistantMessage = result.AssistantMessage
+        });
+
+        return new AgentPhaseOutcome(AgentPhaseStatus.Completed, outputJson);
     }
 }

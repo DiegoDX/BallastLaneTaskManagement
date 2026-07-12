@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Application.DTOs.Agent;
 using Application.Exceptions;
+using Microsoft.Extensions.Options;
 
 namespace Application.Agent;
 
@@ -8,10 +9,12 @@ public sealed class AgentOrchestrator : IAgentOrchestrator
 {
     private readonly IReadOnlyList<IAgentPhaseHandler> _phaseHandlers;
     private readonly IAgentRunStore _runStore;
+    private readonly AgentOptions _options;
 
     public AgentOrchestrator(
         IEnumerable<IAgentPhaseHandler> phaseHandlers,
-        IAgentRunStore runStore)
+        IAgentRunStore runStore,
+        IOptions<AgentOptions> options)
     {
         _phaseHandlers = phaseHandlers?.ToList()
             ?? throw new ArgumentNullException(nameof(phaseHandlers));
@@ -22,6 +25,7 @@ public sealed class AgentOrchestrator : IAgentOrchestrator
         }
 
         _runStore = runStore ?? throw new ArgumentNullException(nameof(runStore));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
     }
 
     public async Task<AgentResponse> RunAsync(
@@ -71,8 +75,9 @@ public sealed class AgentOrchestrator : IAgentOrchestrator
         AgentRunContext context,
         CancellationToken cancellationToken)
     {
-        foreach (var handler in _phaseHandlers)
+        for (var index = 0; index < _phaseHandlers.Count; index++)
         {
+            var handler = _phaseHandlers[index];
             var stopwatch = Stopwatch.StartNew();
             var outcome = await handler.HandleAsync(context, cancellationToken);
             stopwatch.Stop();
@@ -93,6 +98,16 @@ public sealed class AgentOrchestrator : IAgentOrchestrator
 
                 return BuildResponse(context);
             }
+
+            if (ShouldReExecuteAfterReview(handler.PhaseName, outcome.Status, context))
+            {
+                var executePhaseIndex = FindPhaseIndex(AgentPhaseNames.Execute);
+                context.ReExecutionCount++;
+                context.ReExecutionHint = context.Review?.ReExecutionHint;
+                context.ExecuteMessages.Clear();
+                context.ExecutionReport = null;
+                index = executePhaseIndex - 1;
+            }
         }
 
         if (context.Status != AgentRunStatus.Rejected)
@@ -103,6 +118,28 @@ public sealed class AgentOrchestrator : IAgentOrchestrator
         context.Summary ??= "The agent completed without a summary.";
 
         return BuildResponse(context);
+    }
+
+    private bool ShouldReExecuteAfterReview(
+        string phaseName,
+        string outcomeStatus,
+        AgentRunContext context) =>
+        string.Equals(phaseName, AgentPhaseNames.Review, StringComparison.Ordinal)
+        && string.Equals(outcomeStatus, AgentPhaseStatus.Completed, StringComparison.Ordinal)
+        && context.Review?.RequiresReExecution == true
+        && context.ReExecutionCount < _options.MaxReExecutionAttempts;
+
+    private int FindPhaseIndex(string phaseName)
+    {
+        for (var index = 0; index < _phaseHandlers.Count; index++)
+        {
+            if (string.Equals(_phaseHandlers[index].PhaseName, phaseName, StringComparison.Ordinal))
+            {
+                return index;
+            }
+        }
+
+        throw new InvalidOperationException($"Phase handler '{phaseName}' was not registered.");
     }
 
     private static AgentResponse BuildResponse(AgentRunContext context) =>

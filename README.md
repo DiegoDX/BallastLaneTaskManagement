@@ -282,13 +282,23 @@ Ensure `Llm:EmbeddingModel` matches the pulled embedding model (default: `nomic-
 
 ## Agent
 
-The Agent is available at **`/agent`** in the UI (link from the task list) or via **`POST /api/v1/agent`**. Unlike Task Assistant's single ReAct loop, the Agent runs a **deterministic multi-phase workflow**:
+The Agent is available at **`/agent`** in the UI (link from the task list) or via **`POST /api/v1/agent`**. Unlike Task Assistant's single ReAct loop, the Agent runs a **deterministic multi-phase workflow** coordinated by `AgentOrchestrator` through specialized agents:
 
-1. **Plan** — LLM produces a structured JSON plan
+| Agent | Phase | Responsibility |
+|-------|-------|----------------|
+| `PlannerAgent` | Plan | Analyze objective, produce structured plan |
+| *(Approval gate)* | Approval | Human-in-the-loop coordination (not an LLM agent) |
+| `ExecutorAgent` | Execute | MCP tool-calling loop |
+| `ReviewerAgent` | Review | Evaluate execution; may request re-execution |
+| `SummaryAgent` | Summary | User-facing summary |
+
+Specialized agents communicate through typed DTOs only and use **`ILlmClient`** as the provider-independent AI chat abstraction (equivalent to `IAIChatService`). The orchestrator sequences agents via thin phase adapters implementing `IAgentPhaseHandler`.
+
+1. **Plan** — `PlannerAgent` produces a structured JSON plan
 2. **Approval** — pauses when the plan is destructive or high-risk
-3. **Execute** — agentic tool-calling loop via MCP (`IMcpToolClient`)
-4. **Review** — LLM evaluates execution against the plan
-5. **Summary** — user-facing summary with phase timeline
+3. **Execute** — `ExecutorAgent` runs an agentic tool-calling loop via MCP (`IMcpToolClient`)
+4. **Review** — `ReviewerAgent` evaluates execution; may trigger another Execute pass (up to `Agent:MaxReExecutionAttempts`)
+5. **Summary** — `SummaryAgent` produces the user-facing summary with phase timeline
 
 **Example request:**
 
@@ -356,7 +366,8 @@ Configure limits in `BackEnd/Api/appsettings.json` or `appsettings.Development.j
   "MaxPhaseRetries": 2,
   "RunTtlMinutes": 30,
   "RequireApprovalForDestructiveActions": true,
-  "BulkUpdateApprovalThreshold": 3
+  "BulkUpdateApprovalThreshold": 3,
+  "MaxReExecutionAttempts": 2
 }
 ```
 

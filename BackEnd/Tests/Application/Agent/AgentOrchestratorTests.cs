@@ -2,6 +2,7 @@ using Application.Agent;
 using Application.DTOs.Agent;
 using Application.Exceptions;
 using FluentAssertions;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace Tests.Application.Agent;
@@ -16,7 +17,7 @@ public sealed class AgentOrchestratorTests
             AgentPhaseStatus.Waiting,
             ShouldStop: true));
 
-        var orchestrator = new AgentOrchestrator(
+        var orchestrator = CreateOrchestrator(
             [CreateCompletedHandler(AgentPhaseNames.Plan), stopHandler],
             runStoreMock.Object);
 
@@ -41,7 +42,7 @@ public sealed class AgentOrchestratorTests
             .Setup(store => store.GetAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((AgentRunContext?)null);
 
-        var orchestrator = new AgentOrchestrator(
+        var orchestrator = CreateOrchestrator(
             [CreateCompletedHandler(AgentPhaseNames.Plan)],
             runStoreMock.Object);
 
@@ -51,6 +52,70 @@ public sealed class AgentOrchestratorTests
 
         await act.Should().ThrowAsync<NotFoundException>();
     }
+
+    [Fact]
+    public async Task RunAsync_ShouldReExecuteAfterReview_WhenReviewerRequestsIt()
+    {
+        var executeCount = 0;
+        var reviewCount = 0;
+
+        var executeHandler = new CallbackPhaseHandler(AgentPhaseNames.Execute, context =>
+        {
+            executeCount++;
+            context.ExecutionReport = new AgentExecutionReport(1, []);
+            return new AgentPhaseOutcome(AgentPhaseStatus.Completed, "{}");
+        });
+
+        var reviewHandler = new CallbackPhaseHandler(AgentPhaseNames.Review, context =>
+        {
+            reviewCount++;
+
+            if (reviewCount == 1)
+            {
+                context.Review = new AgentReview(
+                    false,
+                    ["Incomplete execution"],
+                    ["Retry"],
+                    RequiresReExecution: true,
+                    ReExecutionHint: "Retry failed updates.");
+
+                return new AgentPhaseOutcome(AgentPhaseStatus.Completed, "{}");
+            }
+
+            context.Review = new AgentReview(true, [], []);
+            return new AgentPhaseOutcome(AgentPhaseStatus.Completed, "{}");
+        });
+
+        var orchestrator = CreateOrchestrator(
+        [
+            CreateCompletedHandler(AgentPhaseNames.Plan),
+            CreateCompletedHandler(AgentPhaseNames.Approval),
+            executeHandler,
+            reviewHandler,
+            CreateCompletedHandler(AgentPhaseNames.Summary)
+        ],
+        Mock.Of<IAgentRunStore>(),
+        maxReExecutionAttempts: 1);
+
+        var response = await orchestrator.RunAsync(
+            Guid.NewGuid(),
+            new AgentRequest([new AgentMessageDto("user", "Fix my tasks")]));
+
+        executeCount.Should().Be(2);
+        reviewCount.Should().Be(2);
+        response.Phases.Count(phase => phase.Phase == AgentPhaseNames.Execute).Should().Be(2);
+        response.Phases.Count(phase => phase.Phase == AgentPhaseNames.Review).Should().Be(2);
+        response.Status.Should().Be(AgentRunStatus.Completed);
+    }
+
+    private static AgentOrchestrator CreateOrchestrator(
+        IReadOnlyList<IAgentPhaseHandler> handlers,
+        IAgentRunStore runStore,
+        int maxReExecutionAttempts = 2) =>
+        new(
+            handlers,
+            runStore,
+            Options.Create(new AgentOptions { MaxReExecutionAttempts = maxReExecutionAttempts }));
 
     private static StubPhaseHandler CreateCompletedHandler(string phaseName) =>
         new(phaseName, new AgentPhaseOutcome(AgentPhaseStatus.Completed, "{}"));
@@ -70,5 +135,17 @@ public sealed class AgentOrchestratorTests
 
             return Task.FromResult(outcome);
         }
+    }
+
+    private sealed class CallbackPhaseHandler(
+        string phaseName,
+        Func<AgentRunContext, AgentPhaseOutcome> callback) : IAgentPhaseHandler
+    {
+        public string PhaseName { get; } = phaseName;
+
+        public Task<AgentPhaseOutcome> HandleAsync(
+            AgentRunContext context,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(callback(context));
     }
 }

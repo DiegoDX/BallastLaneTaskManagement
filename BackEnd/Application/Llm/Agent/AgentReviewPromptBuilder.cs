@@ -40,7 +40,13 @@ public static class AgentReviewPromptBuilder
         {
           "success": true,
           "issues": ["optional issue descriptions"],
-          "recommendations": ["optional recommendations"]
+          "recommendations": ["optional recommendations"],
+          "requiresReExecution": false,
+          "reExecutionHint": "optional guidance when another execute pass is needed"
         }
+
+        Set requiresReExecution to true when critical plan steps failed, validation errors remain,
+        or tool results indicate incomplete work that can be fixed with another execution pass.
+        Include reExecutionHint with concrete guidance for the executor when requiresReExecution is true.
         """;
 }

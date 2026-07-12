@@ -11,11 +11,12 @@ public static class AgentExecutePromptBuilder
 
     public static List<LlmMessage> BuildMessages(
         IReadOnlyList<AgentMessageDto> messages,
-        AgentPlan plan)
+        AgentPlan plan,
+        string? reExecutionHint = null)
     {
         var llmMessages = new List<LlmMessage>
         {
-            new(LlmMessageRole.System, BuildSystemMessage(plan))
+            new(LlmMessageRole.System, BuildSystemMessage(plan, reExecutionHint))
         };
 
         foreach (var message in messages)
@@ -44,7 +45,7 @@ public static class AgentExecutePromptBuilder
         throw new InvalidOperationException($"Unsupported agent message role: {role}");
     }
 
-    private static string BuildSystemMessage(AgentPlan plan)
+    private static string BuildSystemMessage(AgentPlan plan, string? reExecutionHint = null)
     {
         var planJson = JsonSerializer.Serialize(new
         {
@@ -56,6 +57,10 @@ public static class AgentExecutePromptBuilder
                 toolHint = step.ToolHint
             })
         });
+
+        var reExecutionSection = string.IsNullOrWhiteSpace(reExecutionHint)
+            ? string.Empty
+            : $"\n\nReviewer requested another execution pass:\n{reExecutionHint.Trim()}\n";
 
         return
             """
@@ -77,6 +82,7 @@ public static class AgentExecutePromptBuilder
             """ +
             $"- Task titles must be non-empty and at most {TaskTitle.MaxLength} characters.\n" +
             "- Valid task statuses are Pending, InProgress, and Completed.\n\n" +
-            $"Approved plan:\n{planJson}";
+            $"Approved plan:\n{planJson}" +
+            reExecutionSection;
     }
 }

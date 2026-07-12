@@ -10,4 +10,5 @@ public sealed class AgentOptions
     public int RunTtlMinutes { get; init; } = 30;
     public bool RequireApprovalForDestructiveActions { get; init; } = true;
     public int BulkUpdateApprovalThreshold { get; init; } = 3;
+    public int MaxReExecutionAttempts { get; init; } = 2;
 }

@@ -1,105 +1,63 @@
 using Application.Agent;
 using Application.Agent.Phases;
+using Application.Agent.Specialists;
 using Application.DTOs.Agent;
+using Application.DTOs.Agent.Specialists;
 using Application.DTOs.Llm;
 using Application.DTOs.TaskAssistant;
 using Application.Exceptions;
-using Application.Interfaces;
-using Application.Interfaces.Mcp;
 using FluentAssertions;
-using Microsoft.Extensions.Options;
 using Moq;
 
 namespace Tests.Application.Agent.Phases;
 
 public sealed class ExecutePhaseHandlerMcpTests
 {
-    private readonly Mock<ILlmClient> _llmClientMock = new();
-    private readonly Mock<IMcpToolClient> _mcpToolClientMock = new();
+    private readonly Mock<IExecutorAgent> _executorAgentMock = new();
     private readonly ExecutePhaseHandler _sut;
 
     public ExecutePhaseHandlerMcpTests()
     {
-        _sut = new ExecutePhaseHandler(
-            _llmClientMock.Object,
-            _mcpToolClientMock.Object,
-            Options.Create(new AgentOptions
-            {
-                MaxExecuteIterations = 3,
-                MaxToolCallsPerIteration = 2
-            }));
+        _sut = new ExecutePhaseHandler(_executorAgentMock.Object);
     }
 
     [Fact]
-    public async Task HandleAsync_ShouldListToolsAndExecuteUntilNoToolCalls()
+    public async Task HandleAsync_ShouldMapExecutorResultToContext()
     {
         var userId = Guid.NewGuid();
         var context = CreateContext(userId);
+        var executeMessages = new List<LlmMessage>
+        {
+            new(LlmMessageRole.System, "system")
+        };
 
-        _mcpToolClientMock
-            .Setup(client => client.ListToolsAsync(userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync([
-                new LlmToolDefinition("search_tasks", "Search tasks", "{}")
-            ]);
-
-        _llmClientMock
-            .SetupSequence(client => client.CompleteChatWithToolsAsync(
-                It.IsAny<LlmChatRequest>(),
-                It.IsAny<IReadOnlyList<LlmToolDefinition>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new LlmChatCompletion(
-                string.Empty,
-                [new LlmToolCall("call-1", "search_tasks", """{"status":"Pending"}""")],
-                "gpt-test"))
-            .ReturnsAsync(new LlmChatCompletion("All done.", [], "gpt-test"));
-
-        _mcpToolClientMock
-            .Setup(client => client.CallToolAsync(
-                userId,
-                "search_tasks",
-                """{"status":"Pending"}""",
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new McpToolCallResult(
-                """{"success":true,"tasks":[]}""",
-                new TaskAssistantAction(TaskAssistantActionTypes.Listed)));
+        _executorAgentMock
+            .Setup(agent => agent.ExecuteAsync(It.IsAny<ExecutorAgentRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExecutorAgentResult(
+                new AgentExecutionReport(2, [new AgentToolCallRecord("search_tasks", true)]),
+                [new TaskAssistantAction(TaskAssistantActionTypes.Listed)],
+                executeMessages,
+                "All done.",
+                "gpt-test"));
 
         var outcome = await _sut.HandleAsync(context);
 
         outcome.Status.Should().Be(AgentPhaseStatus.Completed);
         context.ExecutionReport.Should().NotBeNull();
         context.ExecutionReport!.Iterations.Should().Be(2);
-        context.ExecutionReport.ToolCalls.Should().ContainSingle(record =>
-            record.Name == "search_tasks" && record.Success);
         context.Actions.Should().ContainSingle(action => action.Type == TaskAssistantActionTypes.Listed);
+        context.ExecuteMessages.Should().BeEquivalentTo(executeMessages);
+        context.Model.Should().Be("gpt-test");
     }
 
     [Fact]
-    public async Task HandleAsync_ShouldThrow_WhenMaxIterationsExceeded()
+    public async Task HandleAsync_ShouldPropagateExecutorExceptions()
     {
-        var userId = Guid.NewGuid();
-        var context = CreateContext(userId);
+        var context = CreateContext(Guid.NewGuid());
 
-        _mcpToolClientMock
-            .Setup(client => client.ListToolsAsync(userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync([new LlmToolDefinition("search_tasks", "Search tasks", "{}")]);
-
-        _llmClientMock
-            .Setup(client => client.CompleteChatWithToolsAsync(
-                It.IsAny<LlmChatRequest>(),
-                It.IsAny<IReadOnlyList<LlmToolDefinition>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new LlmChatCompletion(
-                string.Empty,
-                [new LlmToolCall("call-1", "search_tasks", "{}")],
-                "gpt-test"));
-
-        _mcpToolClientMock
-            .Setup(client => client.CallToolAsync(
-                userId,
-                "search_tasks",
-                "{}",
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new McpToolCallResult("""{"success":true,"tasks":[]}"""));
+        _executorAgentMock
+            .Setup(agent => agent.ExecuteAsync(It.IsAny<ExecutorAgentRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new LlmException("Agent exceeded maximum execute iterations.", isTransient: false));
 
         var act = () => _sut.HandleAsync(context);
 

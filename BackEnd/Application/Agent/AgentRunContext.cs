@@ -20,4 +20,6 @@ public sealed class AgentRunContext
     public List<LlmMessage> ExecuteMessages { get; } = [];
     public string Status { get; set; } = AgentRunStatus.Completed;
     public bool IsContinuation { get; set; }
+    public int ReExecutionCount { get; set; }
+    public string? ReExecutionHint { get; set; }
 }
